@@ -8,7 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** A type tag keeps Iris's existing enum binary-compatible while extending its descriptor semantics. */
+/** 使用类型标记扩展描述符语义，同时保持 Iris 现有枚举的二进制兼容性。 */
 public final class AccelerationStructureDescriptors {
     public static final String TYPE = "irisrt_accelerationStructureEXT";
 
@@ -30,7 +30,7 @@ public final class AccelerationStructureDescriptors {
         return structure;
     }
 
-    /** Carries strong resource references beside the native handles accepted by Iris's snapshot API. */
+    /** 在传递 Iris 快照 API 所需的原生句柄时，同时携带资源的强引用。 */
     public static final class Views extends LinkedHashMap<String, List<Long>> {
         public final Map<String, List<AccelerationStructure>> structures;
 

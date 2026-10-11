@@ -14,7 +14,7 @@ import static org.lwjgl.util.vma.Vma.*;
 import static org.lwjgl.vulkan.VK12.*;
 import static com.github.slmpc.irisrt.vulkan.VulkanAccelerationStructureFeatures.check;
 
-/** GPU-only storage, build input or scratch buffer allocated with buffer device address memory flags. */
+/** 使用缓冲区设备地址内存标志分配的仅供 GPU 使用的存储、构建输入或临时缓冲区。 */
 final class VulkanAccelerationStructureBuffer implements AccelerationStructureBuffer {
     final VulkanAccelerationStructureBackend owner;
     final long handle;
@@ -70,7 +70,7 @@ final class VulkanAccelerationStructureBuffer implements AccelerationStructureBu
             throw new IllegalArgumentException("Invalid upload range/alignment");
         }
         if (bytes == 0) return;
-        // Resolve the command buffer first: reject uploads inside a render pass before allocating staging memory.
+        // 先获取命令缓冲区，在分配暂存内存前拒绝渲染通道内的上传操作。
         var command = VulkanCommandBridge.commandBuffer(owner.device.createCommandEncoder());
         try (var stack = MemoryStack.stackPush();
              GpuBuffer staging = owner.device.createBuffer(() -> "IrisRT AS upload", GpuBuffer.USAGE_COPY_SRC, data)) {

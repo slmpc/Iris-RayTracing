@@ -91,7 +91,7 @@ final class PipelineRayQuerySmokeTest {
                 selected.set(List.of(missTlas, tlas));
                 dispatch(pipeline);
                 require(read(output.getBuffer(0).buffer()) == 2, "TLAS replacement must invalidate descriptor snapshot reuse");
-                // Repeating the same bindings exercises Iris's descriptor cache.
+                // 重复使用相同绑定，以验证 Iris 的描述符缓存。
                 dispatch(pipeline);
                 require(read(output.getBuffer(0).buffer()) == 2, "Cached descriptor snapshot must preserve TLAS bindings");
                 selected.set(List.of(tlas));
@@ -104,13 +104,13 @@ final class PipelineRayQuerySmokeTest {
                     expectFailure(() -> dispatch(pipeline), "Unbuilt TLAS shader binding must fail");
                     asBackend.build(unbuilt);
                     selected.set(List.of(unbuilt, tlas));
-                    // Record shader work, then close before submission. The snapshot lease must keep it valid.
+                    // 录制着色器命令后，在提交前关闭资源；快照租约必须保证资源仍然有效。
                     dispatch(pipeline);
                     unbuilt.close();
                     require(read(output.getBuffer(0).buffer()) == 2, "Closing a leased TLAS must preserve pending shader work");
                     expectFailure(() -> dispatch(pipeline), "Closed TLAS cannot be used by a new descriptor snapshot");
                 }
-                // Rejected bindings must not poison valid later snapshots.
+                // 被拒绝的绑定不得影响后续有效快照。
                 selected.set(List.of(tlas, missTlas));
                 dispatch(pipeline);
                 require(read(output.getBuffer(0).buffer()) == 1, "Pipeline must recover after rejected TLAS binding");

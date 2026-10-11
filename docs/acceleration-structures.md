@@ -74,7 +74,7 @@ OpenGL 的 `accelerationStructures()` 返回 `null`。Vulkan 不支持所需扩�
 #version 460
 #extension GL_EXT_ray_query : require
 uniform accelerationStructureEXT scene;
-// uniform accelerationStructureEXT scenes[2];
+// 着色器中的数组声明：uniform accelerationStructureEXT scenes[2];
 ```
 
 IrisRT 扩展 `VulkanResourceTransformer`，在普通 uniform lowering 前识别 AS，

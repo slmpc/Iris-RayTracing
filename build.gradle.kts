@@ -21,10 +21,10 @@ dependencies {
     implementation(libs.fabric.loader)
     implementation(libs.fabric.api)
 
-    // Minecraft 26.3 and this Iris JAR use official names; no remapping is needed.
+    // Minecraft 26.3 和此 Iris JAR 均使用官方命名，无需重新映射。
     implementation(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
     runtimeOnly(libs.sodium)
-    // Iris embeds this library; expose its AST API for our shader resource extension.
+    // Iris 内嵌了此库；这里引入其 AST API，以扩展着色器资源。
     compileOnly(libs.glsl.transformer)
     testImplementation(libs.glsl.transformer)
 
@@ -37,7 +37,7 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// Opt-in integration mod: exercises real GPU commands and exits, never packaged in IrisRT.
+// 按需启用的集成测试模组：执行真实 GPU 命令后退出，不打包进 IrisRT。
 if (providers.gradleProperty("asSmokeTest").isPresent) {
     val smoke = sourceSets.create("smoke") {
         compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath

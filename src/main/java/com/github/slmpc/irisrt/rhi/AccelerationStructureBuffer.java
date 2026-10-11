@@ -2,13 +2,13 @@ package com.github.slmpc.irisrt.rhi;
 
 import java.nio.ByteBuffer;
 
-/** Device-addressable build input. Uploads and builds use the graphics command encoder. */
+/** 支持设备地址的构建输入。上传和构建使用图形命令编码器。 */
 public interface AccelerationStructureBuffer extends AutoCloseable {
     long size();
     long deviceAddress();
     boolean isClosed();
 
-    /** Records a staging upload from a direct buffer. Offset and byte count must be multiples of four. */
+    /** 录制通过暂存缓冲区上传直接缓冲区数据的命令。偏移量和字节数必须是四的倍数。 */
     void upload(long offset, ByteBuffer data);
 
     @Override

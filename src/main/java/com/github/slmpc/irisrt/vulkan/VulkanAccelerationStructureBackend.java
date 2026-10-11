@@ -15,7 +15,7 @@ import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 import static org.lwjgl.vulkan.KHRSynchronization2.*;
 import static org.lwjgl.vulkan.VK12.*;
 
-/** AS commands share Iris/Minecraft's graphics queue, command buffer and deferred destruction. */
+/** 加速结构命令共用 Iris/Minecraft 的图形队列、命令缓冲区和延迟销毁机制。 */
 public final class VulkanAccelerationStructureBackend implements AccelerationStructureBackend, AutoCloseable {
     final VulkanDevice device;
     private final boolean supported;
@@ -30,7 +30,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     public VulkanAccelerationStructureBackend(VulkanDevice device) {
         RenderSystem.assertOnRenderThread();
         this.device = device;
-        // This extension is only added by our device-creation hook when AS and BDA features are supported.
+        // 仅在设备支持加速结构和缓冲区设备地址功能时，设备创建钩子才会添加此扩展。
         supported = device.vkDevice().getCapabilities().VK_KHR_acceleration_structure;
         if (supported) {
             try (var stack = MemoryStack.stackPush()) {
@@ -57,7 +57,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     @Override
     public AccelerationStructureBuffer createInputBuffer(long size) {
         requireSupport();
-        // Copy uploads require a four-byte-aligned buffer size.
+        // 通过复制命令上传时，缓冲区大小必须按四字节对齐。
         if (size <= 0 || (size & 3) != 0) throw new IllegalArgumentException("Input size must be positive and aligned to four bytes");
         var buffer = new VulkanAccelerationStructureBuffer(this, size,
                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -91,7 +91,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
                 structures.add(structure);
                 return structure;
             } catch (RuntimeException | Error e) {
-                // Nothing has been submitted for this new resource yet.
+                // 此新资源尚未用于任何已提交的命令。
                 if (handle != 0) vkDestroyAccelerationStructureKHR(device.vkDevice(), handle, null);
                 storage.destroy();
                 throw e;
@@ -115,10 +115,10 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         if (update && (!structure.built || !structure.description.allowUpdate())) {
             throw new IllegalStateException("Update requires a prior build with allowUpdate");
         }
-        // Reject work inside a render pass before allocating scratch resources.
+        // 在分配临时资源前，拒绝渲染通道内的操作。
         var command = VulkanCommandBridge.commandBuffer(device.createCommandEncoder());
         long scratchSize = update ? structure.updateScratchSize : structure.buildScratchSize;
-        // Align the device address, not just the buffer offset. Leave enough padding for the entire range.
+        // 对齐的是设备地址，而不仅是缓冲区偏移；预留足够的填充空间以容纳整个使用范围。
         long allocationSize = Math.addExact(Math.max(1, scratchSize), scratchAlignment - 1);
         try (var scratch = new VulkanAccelerationStructureBuffer(this, allocationSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
              var stack = MemoryStack.stackPush();
@@ -136,7 +136,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
             for (int i = 0; i < ranges.capacity(); i++) {
                 ranges.get(i).primitiveCount(structure.description.geometries().get(i).primitiveCount());
             }
-            // Upload -> build, BLAS -> TLAS, build -> subsequent shaders/builds, and scratch reuse.
+            // 同步上传到构建、BLAS 到 TLAS、构建到后续着色器或构建的访问，以及临时缓冲区的复用。
             barrier(command, stack);
             vkCmdBuildAccelerationStructuresKHR(command, info, stack.pointers(ranges.address()));
             barrier(command, stack);
@@ -172,7 +172,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     }
 
     private VkAccelerationStructureGeometryKHR.Buffer geometries(AccelerationStructureDescription description) {
-        // Multi-geometry BLAS arrays can exceed LWJGL's native stack size.
+        // 包含多个几何体的 BLAS 数组可能超过 LWJGL 原生栈的容量。
         var result = VkAccelerationStructureGeometryKHR.calloc(description.geometries().size());
         try {
             for (int i = 0; i < result.capacity(); i++) {

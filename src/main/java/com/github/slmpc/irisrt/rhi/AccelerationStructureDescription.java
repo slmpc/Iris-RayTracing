@@ -3,7 +3,7 @@ package com.github.slmpc.irisrt.rhi;
 import java.util.List;
 import java.util.Objects;
 
-/** Fixed geometry layout and counts; update changes buffer contents, not this description. */
+/** 固定的几何布局和数量；更新时仅修改缓冲区内容，不修改此描述。 */
 public record AccelerationStructureDescription(AccelerationStructure.Type type,
                                                List<AccelerationGeometry> geometries,
                                                boolean allowUpdate, boolean preferFastTrace) {

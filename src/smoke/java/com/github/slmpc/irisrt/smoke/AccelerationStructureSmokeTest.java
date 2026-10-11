@@ -13,7 +13,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
 
-/** Opt-in integration test. A successful run writes a marker and exits the game. */
+/** 按需启用的集成测试。成功运行后写入标记文件并退出游戏。 */
 public final class AccelerationStructureSmokeTest implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
@@ -85,7 +85,7 @@ public final class AccelerationStructureSmokeTest implements ClientModInitialize
             MemoryUtil.memFree(instances);
             MemoryUtil.memFree(aabbs);
         }
-        // Advance deferred destruction through at least the encoder's two in-flight submissions.
+        // 推进延迟销毁流程，至少覆盖编码器的两次在途提交。
         for (int i = 0; i < 3; i++) awaitGpu();
     }
 

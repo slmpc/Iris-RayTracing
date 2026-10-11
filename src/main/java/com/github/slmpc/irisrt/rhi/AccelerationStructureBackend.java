@@ -1,6 +1,6 @@
 package com.github.slmpc.irisrt.rhi;
 
-/** Render-thread-only RHI operations, recorded outside a render pass. */
+/** 仅限渲染线程调用的 RHI 操作，必须在渲染通道之外录制。 */
 public interface AccelerationStructureBackend {
     boolean isSupported();
     default boolean supportsRayQuery() { return false; }

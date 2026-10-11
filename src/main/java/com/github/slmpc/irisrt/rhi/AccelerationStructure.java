@@ -1,6 +1,6 @@
 package com.github.slmpc.irisrt.rhi;
 
-/** A GPU-built BLAS or TLAS. Close queues destruction after pending GPU work. */
+/** 由 GPU 构建的 BLAS 或 TLAS。关闭时安排在待处理的 GPU 工作完成后销毁。 */
 public interface AccelerationStructure extends AutoCloseable {
     enum Type { BOTTOM_LEVEL, TOP_LEVEL }
 

@@ -2,7 +2,7 @@ package com.github.slmpc.irisrt.rhi;
 
 import net.irisshaders.iris.backend.RenderBackend;
 
-/** Added to Iris RenderBackend by Mixin. OpenGL deliberately exposes no AS backend. */
+/** 通过 Mixin 扩展 Iris 的 RenderBackend。OpenGL 不提供加速结构后端。 */
 public interface AccelerationStructureBackendProvider {
     default AccelerationStructureBackend accelerationStructures() { return null; }
 

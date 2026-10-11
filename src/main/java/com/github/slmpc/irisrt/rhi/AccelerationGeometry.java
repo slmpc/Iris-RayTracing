@@ -2,14 +2,14 @@ package com.github.slmpc.irisrt.rhi;
 
 import java.util.Objects;
 
-/** Build input layouts. Offsets are bytes; all buffers must come from the same backend. */
+/** 构建输入的布局。偏移量以字节为单位；所有缓冲区必须来自同一后端。 */
 public sealed interface AccelerationGeometry {
     int primitiveCount();
     boolean opaque();
 
     enum IndexType { NONE, UINT16, UINT32 }
 
-    /** Positions are R32G32B32_SFLOAT. Indices reference the supplied vertex range. */
+    /** 顶点位置使用 R32G32B32_SFLOAT 格式。索引引用所提供的顶点范围。 */
     record Triangles(AccelerationStructureBuffer vertices, long vertexOffset, int vertexCount,
                      long vertexStride, AccelerationStructureBuffer indices, long indexOffset,
                      IndexType indexType, int primitiveCount, boolean opaque) implements AccelerationGeometry {
@@ -30,7 +30,7 @@ public sealed interface AccelerationGeometry {
         }
     }
 
-    /** Each AABB contains six floats (minimum xyz, maximum xyz). */
+    /** 每个 AABB 包含六个浮点数，依次为最小点的 xyz 和最大点的 xyz。 */
     record Aabbs(AccelerationStructureBuffer buffer, long offset, long stride,
                  int primitiveCount, boolean opaque) implements AccelerationGeometry {
         public Aabbs {
@@ -39,7 +39,7 @@ public sealed interface AccelerationGeometry {
         }
     }
 
-    /** Packed VkAccelerationStructureInstanceKHR records (64 bytes each), not an array of pointers. */
+    /** 连续存放的 VkAccelerationStructureInstanceKHR 记录，每条 64 字节，而非指针数组。 */
     record Instances(AccelerationStructureBuffer buffer, long offset,
                      int primitiveCount) implements AccelerationGeometry {
         public Instances {

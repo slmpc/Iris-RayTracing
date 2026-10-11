@@ -13,7 +13,7 @@ import static org.lwjgl.vulkan.KHRDeferredHostOperations.VK_KHR_DEFERRED_HOST_OP
 import static org.lwjgl.vulkan.KHRRayQuery.*;
 import static org.lwjgl.vulkan.VK12.*;
 
-/** Optional device features: unsupported GPUs keep the original Minecraft device configuration. */
+/** 可选的设备功能：不支持这些功能的 GPU 保留 Minecraft 原有的设备配置。 */
 public final class VulkanAccelerationStructureFeatures {
     private VulkanAccelerationStructureFeatures() { }
 
@@ -21,7 +21,7 @@ public final class VulkanAccelerationStructureFeatures {
         var count = stack.callocInt(1);
         check(vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, count, null), "enumerate device extensions");
         Set<String> available = new LinkedHashSet<>();
-        // Drivers can expose hundreds of extensions: this array exceeds LWJGL's default native stack.
+        // 驱动可能提供数百个扩展，所需数组会超过 LWJGL 默认原生栈的容量。
         try (var extensions = VkExtensionProperties.calloc(count.get(0))) {
             check(vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, count, extensions), "enumerate device extensions");
             for (int i = 0; i < count.get(0); i++) available.add(extensions.get(i).extensionNameString());
@@ -44,7 +44,7 @@ public final class VulkanAccelerationStructureFeatures {
             return;
         }
 
-        // Preserve Minecraft's existing pNext chain and all of its enabled feature bits.
+        // 保留 Minecraft 现有的 pNext 链和所有已启用的功能位。
         long address12 = find(info.pNext(), VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES);
         if (address12 == 0) {
             var enabled12 = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default().pNext(info.pNext());

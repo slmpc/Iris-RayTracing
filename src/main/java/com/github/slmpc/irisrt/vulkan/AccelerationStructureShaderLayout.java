@@ -12,7 +12,7 @@ import net.irisshaders.iris.pipeline.transform.vulkan.VulkanGlsl;
 import java.util.*;
 import java.util.function.Supplier;
 
-/** Extract opaque AS uniforms before Iris lowers ordinary uniforms, then append collision-free set-0 bindings. */
+/** 在 Iris 转换普通 uniform 前提取不透明的加速结构 uniform，再添加无冲突的描述符集合 0 绑定。 */
 public final class AccelerationStructureShaderLayout {
     private AccelerationStructureShaderLayout() { }
 

@@ -7,7 +7,7 @@ import org.lwjgl.vulkan.VkAccelerationStructureDeviceAddressInfoKHR;
 
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
-/** Native acceleration structure retained by Iris descriptor snapshots until their retirement. */
+/** 由 Iris 描述符快照持有的原生加速结构，直到快照退役才释放相应引用。 */
 public final class VulkanAccelerationStructure implements AccelerationStructure {
     final VulkanAccelerationStructureBackend owner;
     final AccelerationStructureDescription description;
@@ -46,7 +46,7 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
 
     public long storageBufferHandle() { checkOpen(); return storage.handle; }
 
-    /** Internal descriptor lease; released when Iris retires the descriptor snapshot. */
+    /** 内部描述符租约；在 Iris 将描述符快照退役时释放。 */
     public void retainDescriptor() {
         checkOpen();
         descriptorReferences = Math.addExact(descriptorReferences, 1);
@@ -80,7 +80,7 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     private void queueDestruction() {
         if (closed && descriptorReferences == 0 && !destructionQueued) {
             destructionQueued = true;
-            // Descriptor leases keep the AS alive across cached snapshots and queued GPU work.
+            // 描述符租约保证加速结构在快照缓存和已排队的 GPU 工作使用期间保持有效。
             owner.device.createCommandEncoder().queueForDestroy(() -> {
                 vkDestroyAccelerationStructureKHR(owner.device.vkDevice(), handle, null);
                 storage.destroy();
