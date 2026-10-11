@@ -21,6 +21,7 @@ Linux/macOS 使用 `./gradlew`。构建产物位于 `build/libs/`。
 - 本地 Iris：`thirdparty/iris-vk-1.11.6-snapshot+mc26.3-local.jar`。
 - 开发编译和运行时自动下载 Sodium 0.9.2（Minecraft 26.3 / Fabric）。
 
+此 Iris Vulkan 版本尚未发布，仓库不提供其 JAR。构建前需自行获取对应版本，按 [thirdparty/README.md](thirdparty/README.md) 手动放入 `thirdparty/`。
 Iris 以本地文件形式加入客户端编译和运行类路径，不打包进 IrisRT。
 安装模组时，需要另外安装 Fabric API、上述 Iris 和兼容的 Sodium 0.9.x。
 Minecraft 26.3 使用官方命名，无需 Yarn 映射。
