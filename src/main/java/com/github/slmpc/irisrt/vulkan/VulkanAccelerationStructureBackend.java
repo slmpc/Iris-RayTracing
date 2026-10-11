@@ -52,6 +52,9 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     public boolean isSupported() { checkThread(); return supported && !closed; }
 
     @Override
+    public boolean supportsRayQuery() { return isSupported() && device.vkDevice().getCapabilities().VK_KHR_ray_query; }
+
+    @Override
     public AccelerationStructureBuffer createInputBuffer(long size) {
         requireSupport();
         // Copy uploads require a four-byte-aligned buffer size.

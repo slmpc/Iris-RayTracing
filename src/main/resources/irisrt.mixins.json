@@ -5,7 +5,13 @@
   "client": [
     "RenderBackendMixin",
     "VulkanRenderBackendMixin",
-    "VulkanBackendMixin"
+    "VulkanBackendMixin",
+    "ProgramResourcesMixin",
+    "ProgramResourceBindingsMixin",
+    "VulkanProgramResourcesMixin",
+    "VulkanResourceSetsMixin",
+    "VulkanResourceSnapshotMixin",
+    "VulkanResourceTransformerMixin"
   ],
   "injectors": { "defaultRequire": 1 }
 }

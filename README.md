@@ -27,7 +27,8 @@ Minecraft 26.3 使用官方命名，无需 Yarn 映射。
 
 ## 加速结构 RHI
 
-已添加 Vulkan BLAS/TLAS 创建、构建、更新、设备地址与延迟释放支持；OpenGL 返回空支持。
+已添加 Vulkan BLAS/TLAS 创建、构建、更新、设备地址与延迟释放支持，并可将 TLAS 标量或数组绑定到 Iris graphics/compute pipeline，使用 `GL_EXT_ray_query` 查询。
+通过 `AccelerationStructureBindings.of(programResources)` 按 shader 资源名称注册 TLAS；OpenGL 返回空支持。
 接口使用、实现分析和验证命令见 [docs/acceleration-structures.md](docs/acceleration-structures.md)。
 Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 下。
 

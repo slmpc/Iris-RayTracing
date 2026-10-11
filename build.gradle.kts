@@ -24,6 +24,9 @@ dependencies {
     // Minecraft 26.3 and this Iris JAR use official names; no remapping is needed.
     implementation(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
     runtimeOnly(libs.sodium)
+    // Iris embeds this library; expose its AST API for our shader resource extension.
+    compileOnly(libs.glsl.transformer)
+    testImplementation(libs.glsl.transformer)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

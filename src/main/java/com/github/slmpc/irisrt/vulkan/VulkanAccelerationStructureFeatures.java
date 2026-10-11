@@ -10,6 +10,7 @@ import java.util.Set;
 
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 import static org.lwjgl.vulkan.KHRDeferredHostOperations.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME;
+import static org.lwjgl.vulkan.KHRRayQuery.*;
 import static org.lwjgl.vulkan.VK12.*;
 
 /** Optional device features: unsupported GPUs keep the original Minecraft device configuration. */
@@ -32,6 +33,9 @@ public final class VulkanAccelerationStructureFeatures {
         }
 
         var supportedAs = VkPhysicalDeviceAccelerationStructureFeaturesKHR.calloc(stack).sType$Default();
+        var query = VkPhysicalDeviceRayQueryFeaturesKHR.calloc(stack).sType$Default();
+        boolean queryExtension = available.contains(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        if (queryExtension) supportedAs.pNext(query.address());
         var supported12 = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default().pNext(supportedAs.address());
         var supported = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default().pNext(supported12.address());
         vkGetPhysicalDeviceFeatures2(physicalDevice, supported);
@@ -63,6 +67,17 @@ public final class VulkanAccelerationStructureFeatures {
         }
         enabled.add(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         enabled.add(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        if (queryExtension && query.rayQuery()) {
+            long addressQuery = find(info.pNext(), VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR);
+            if (addressQuery == 0) {
+                var enabledQuery = VkPhysicalDeviceRayQueryFeaturesKHR.calloc(stack).sType$Default().pNext(info.pNext());
+                info.pNext(enabledQuery.address());
+                addressQuery = enabledQuery.address();
+            }
+            VkPhysicalDeviceRayQueryFeaturesKHR.create(addressQuery).rayQuery(true);
+            enabled.add(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            IrisRT.LOGGER.info("Enabling Vulkan ray query shader support");
+        }
         PointerBuffer names = stack.mallocPointer(enabled.size());
         for (String name : enabled) names.put(stack.UTF8(name));
         info.ppEnabledExtensionNames(names.flip());

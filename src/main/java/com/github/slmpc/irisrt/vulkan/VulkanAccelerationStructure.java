@@ -7,7 +7,7 @@ import org.lwjgl.vulkan.VkAccelerationStructureDeviceAddressInfoKHR;
 
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
-/** The native handle can be used by a later Vulkan descriptor-set implementation. */
+/** Native acceleration structure retained by Iris descriptor snapshots until their retirement. */
 public final class VulkanAccelerationStructure implements AccelerationStructure {
     final VulkanAccelerationStructureBackend owner;
     final AccelerationStructureDescription description;
@@ -18,6 +18,8 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     private final long address;
     private boolean closed;
     boolean built;
+    private int descriptorReferences;
+    private boolean destructionQueued;
 
     VulkanAccelerationStructure(VulkanAccelerationStructureBackend owner, AccelerationStructureDescription description,
                                 VulkanAccelerationStructureBuffer storage, long handle, long buildScratchSize, long updateScratchSize) {
@@ -42,6 +44,21 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
 
     public long vkHandle() { checkOpen(); return handle; }
 
+    public long storageBufferHandle() { checkOpen(); return storage.handle; }
+
+    /** Internal descriptor lease; released when Iris retires the descriptor snapshot. */
+    public void retainDescriptor() {
+        checkOpen();
+        descriptorReferences = Math.addExact(descriptorReferences, 1);
+    }
+
+    public void releaseDescriptor() {
+        owner.checkThread();
+        if (descriptorReferences <= 0) throw new IllegalStateException("Unbalanced AS descriptor lease");
+        descriptorReferences--;
+        queueDestruction();
+    }
+
     @Override
     public boolean isClosed() { return closed; }
 
@@ -56,7 +73,14 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
         if (!closed) {
             closed = true;
             owner.release(this);
-            // Destroy the AS before its backing buffer, only after outstanding commands finish.
+            queueDestruction();
+        }
+    }
+
+    private void queueDestruction() {
+        if (closed && descriptorReferences == 0 && !destructionQueued) {
+            destructionQueued = true;
+            // Descriptor leases keep the AS alive across cached snapshots and queued GPU work.
             owner.device.createCommandEncoder().queueForDestroy(() -> {
                 vkDestroyAccelerationStructureKHR(owner.device.vkDevice(), handle, null);
                 storage.destroy();

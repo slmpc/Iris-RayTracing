@@ -66,6 +66,7 @@ public final class AccelerationStructureSmokeTest implements ClientModInitialize
                     backend.build(tlas);
                     backend.update(tlas);
                     require(tlas.deviceAddress() != 0, "TLAS must have a device address");
+                    PipelineRayQuerySmokeTest.run(backend, blas, tlas);
                     awaitGpu();
                 }
                 blas.close();
