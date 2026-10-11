@@ -19,11 +19,17 @@ Linux/macOS 使用 `./gradlew`。构建产物位于 `build/libs/`。
 
 - Fabric Loader 0.19.5、Fabric API 0.162.0+26.3。
 - 本地 Iris：`thirdparty/iris-vk-1.11.6-snapshot+mc26.3-local.jar`。
-- 开发运行时自动下载 Sodium 0.9.2（Minecraft 26.3 / Fabric）。
+- 开发编译和运行时自动下载 Sodium 0.9.2（Minecraft 26.3 / Fabric）。
 
 Iris 以本地文件形式加入客户端编译和运行类路径，不打包进 IrisRT。
 安装模组时，需要另外安装 Fabric API、上述 Iris 和兼容的 Sodium 0.9.x。
 Minecraft 26.3 使用官方命名，无需 Yarn 映射。
+
+## 视频设置
+
+Sodium 视频设置中的 **Iris-Raytracing → 设置** 提供拓展开关，默认关闭，配置保存在 `config/irisrt.properties`。
+点击“应用”会保存配置并重新加载光影包。启用时，光影包的 GLSL 和属性预处理环境中定义 `ENABLED_LUMIN_RAY_TRACING_EXTENSION`；关闭时不定义。
+光影包可使用 `#ifdef ENABLED_LUMIN_RAY_TRACING_EXTENSION` 选择对应代码路径。
 
 ## 加速结构 RHI
 

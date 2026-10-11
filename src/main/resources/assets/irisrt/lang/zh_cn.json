@@ -1,0 +1,6 @@
+{
+  "options.irisrt.title": "Iris-Raytracing",
+  "options.irisrt.settings": "设置",
+  "options.irisrt.extension": "启用 Iris-Raytracing 拓展",
+  "options.irisrt.extension.tooltip": "启用兼容光影包中的光线追踪功能。应用此选项后会重新加载光影包。"
+}

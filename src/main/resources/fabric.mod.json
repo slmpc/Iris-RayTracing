@@ -9,7 +9,8 @@
   "environment": "client",
   "mixins": ["irisrt.mixins.json"],
   "entrypoints": {
-    "client": ["com.github.slmpc.irisrt.IrisRT"]
+    "client": ["com.github.slmpc.irisrt.IrisRT"],
+    "sodium:config_api_user": ["com.github.slmpc.irisrt.config.IrisRTSodiumConfig"]
   },
   "depends": {
     "fabricloader": ">=${loader_version}",

@@ -1,0 +1,6 @@
+{
+  "options.irisrt.title": "Iris-Raytracing",
+  "options.irisrt.settings": "Settings",
+  "options.irisrt.extension": "Enable Iris-Raytracing Extension",
+  "options.irisrt.extension.tooltip": "Enables ray tracing features in compatible shader packs. Applying this option reloads the shader pack."
+}

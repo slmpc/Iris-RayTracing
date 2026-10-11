@@ -139,6 +139,9 @@ TLAS 数组中命中与未命中、交换数组元素、相同绑定的缓存复
 OpenGL 测试检查后端返回 `null`。成功后写入 `build/smoke-run-*/as-smoke-passed.txt` 并退出游戏。
 检查当次日志中的 `IRISRT_AS_SMOKE_PASSED` 与 Vulkan validation 消息，不只依赖标记文件。
 
-另有 8 项单元测试，覆盖几何数据约束及 AS 声明的阶段合并、binding 分配和冲突处理。
+集成测试还验证 Sodium 的拓展开关注册、应用与配置持久化，以及实际 Mixin 注入的宏在 GLSL 预处理中的启用和关闭分支。
+这部分通过后日志输出 `IRISRT_SETTINGS_SMOKE_PASSED`；测试在游戏资源加载完成后执行，以便使用 Sodium 的完整设置。
+
+另有 10 项单元测试，覆盖配置默认值和持久化、几何数据约束及 AS 声明的阶段合并、binding 分配和冲突处理。
 已在 NVIDIA GeForce RTX 4060 Laptop GPU 上开启 Vulkan 验证层验证上述 GPU 路径，未发现 Vulkan 验证错误；
 OpenGL 空实现也已通过。无 AS 支持设备的路径尚未实机验证。

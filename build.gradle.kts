@@ -23,7 +23,7 @@ dependencies {
 
     // Minecraft 26.3 和此 Iris JAR 均使用官方命名，无需重新映射。
     implementation(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
-    runtimeOnly(libs.sodium)
+    implementation(libs.sodium)
     // Iris 内嵌了此库；这里引入其 AST API，以扩展着色器资源。
     compileOnly(libs.glsl.transformer)
     testImplementation(libs.glsl.transformer)

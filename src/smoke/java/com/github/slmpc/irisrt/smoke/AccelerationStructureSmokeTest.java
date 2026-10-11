@@ -4,7 +4,7 @@ import com.github.slmpc.irisrt.IrisRT;
 import com.github.slmpc.irisrt.rhi.*;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.irisshaders.iris.Iris;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.VkAccelerationStructureInstanceKHR;
@@ -15,10 +15,16 @@ import java.util.List;
 
 /** 按需启用的集成测试。成功运行后写入标记文件并退出游戏。 */
 public final class AccelerationStructureSmokeTest implements ClientModInitializer {
+    private boolean ran;
+
     @Override
     public void onInitializeClient() {
-        ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            // Sodium 的完整设置在资源加载完成后注册，测试必须等到此时再执行。
+            if (ran || !client.isGameLoadFinished()) return;
+            ran = true;
             try {
+                RayTracingSettingsSmokeTest.run();
                 run();
                 java.nio.file.Files.writeString(java.nio.file.Path.of("as-smoke-passed.txt"), "AS smoke passed\n");
                 IrisRT.LOGGER.info("IRISRT_AS_SMOKE_PASSED");
