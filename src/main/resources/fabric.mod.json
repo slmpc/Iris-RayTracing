@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "irisrt",
+  "version": "${version}",
+  "name": "IrisRT",
+  "description": "A client-side Fabric mod built on Iris for Minecraft 26.3.",
+  "authors": ["slmpc"],
+  "license": "All Rights Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.github.slmpc.irisrt.IrisRTClient"]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": "*",
+    "iris": "${iris_version}",
+    "sodium": "0.9.x"
+  }
+}
