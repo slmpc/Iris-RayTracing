@@ -6,7 +6,7 @@ version = providers.gradleProperty("mod_version").get()
 group = providers.gradleProperty("maven_group").get()
 
 base {
-    archivesName.set("irisrt")
+    archivesName.set("luminrt")
 }
 
 repositories {
@@ -37,7 +37,7 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// 按需启用的集成测试模组：执行真实 GPU 命令后退出，不打包进 IrisRT。
+// 按需启用的集成测试模组：执行真实 GPU 命令后退出，不打包进 LuminRT。
 if (providers.gradleProperty("asSmokeTest").isPresent) {
     val smoke = sourceSets.create("smoke") {
         compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
@@ -46,14 +46,14 @@ if (providers.gradleProperty("asSmokeTest").isPresent) {
     val graphicsBackend = providers.gradleProperty("smokeBackend").getOrElse("VULKAN")
     loom {
         mods {
-            create("irisrt") { sourceSet(sourceSets.main.get()) }
-            create("irisrt_smoke") { sourceSet(smoke) }
+            create("luminrt") { sourceSet(sourceSets.main.get()) }
+            create("luminrt_smoke") { sourceSet(smoke) }
         }
         runs.named("client") {
             sourceSet.set(smoke.name)
             programArguments.addAll("--graphicsBackend", graphicsBackend)
             if (graphicsBackend == "VULKAN") programArguments.add("--vulkanValidation")
-            systemProperties.put("irisrt.smokeBackend", graphicsBackend)
+            systemProperties.put("luminrt.smokeBackend", graphicsBackend)
             runDirectory.set(layout.buildDirectory.dir("smoke-run-${graphicsBackend.lowercase()}"))
         }
     }
@@ -84,7 +84,7 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.jar {
     from("LICENSE") {
-        rename { "LICENSE_irisrt" }
+        rename { "LICENSE_luminrt" }
     }
     from(listOf("THIRD_PARTY_NOTICES.md", "AI_DISCLOSURE.md")) {
         into("META-INF")

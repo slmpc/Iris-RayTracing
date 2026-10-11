@@ -17,6 +17,6 @@ Gradle 从此本地路径读取依赖；版本号由 `gradle/libs.versions.toml`
 .\gradlew.bat runClient
 ```
 
-需要 JDK 25。此依赖不打包进 IrisRT，实际安装模组时仍须另行安装兼容的 Iris、Fabric API 和 Sodium，详见根目录 [README](../README.md)。
+需要 JDK 25。此依赖不打包进 LuminRT，实际安装模组时仍须另行安装兼容的 Iris、Fabric API 和 Sodium，详见根目录 [README](../README.md)。
 
 `iris-vk-*.jar` 已被 Git 忽略，请勿将本地依赖 JAR 提交到仓库。

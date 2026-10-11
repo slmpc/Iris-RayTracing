@@ -1,0 +1,6 @@
+{
+  "options.luminrt.title": "LuminRT",
+  "options.luminrt.settings": "Settings",
+  "options.luminrt.extension": "Enable LuminRT Extension",
+  "options.luminrt.extension.tooltip": "Enables the RayQuery ray tracing extension for compatible Iris Vulkan shader packs. Currently supports RayQuery only. Applying this option reloads the shader pack."
+}

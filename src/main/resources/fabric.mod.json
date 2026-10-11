@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "irisrt",
+  "id": "luminrt",
   "version": "${version}",
-  "name": "IrisRT",
-  "description": "A client-side Fabric mod built on Iris for Minecraft 26.3.",
+  "name": "LuminRT",
+  "description": "LuminRT extends Iris Vulkan with ray tracing for Minecraft 26.3. Currently supports RayQuery only.",
   "authors": ["slmpc"],
   "license": "GPL-3.0-only",
   "contact": {
@@ -11,10 +11,10 @@
     "issues": "https://github.com/slmpc/Iris-RayTracing/issues"
   },
   "environment": "client",
-  "mixins": ["irisrt.mixins.json"],
+  "mixins": ["luminrt.mixins.json"],
   "entrypoints": {
-    "client": ["com.github.slmpc.irisrt.IrisRT"],
-    "sodium:config_api_user": ["com.github.slmpc.irisrt.config.IrisRTSodiumConfig"]
+    "client": ["com.github.slmpc.luminrt.LuminRT"],
+    "sodium:config_api_user": ["com.github.slmpc.luminrt.config.LuminRTSodiumConfig"]
   },
   "depends": {
     "fabricloader": ">=${loader_version}",

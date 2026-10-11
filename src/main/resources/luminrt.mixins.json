@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "package": "com.github.slmpc.luminrt.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "StandardMacrosMixin",
+    "SectionCompilerMixin",
+    "SectionCompilerResultsMixin",
+    "CompiledSectionMeshMixin",
+    "RenderSectionMixin",
+    "StagedVertexBufferDrawMixin",
+    "LevelRendererMixin",
+    "PipelineManagerMixin",
+    "RenderBackendMixin",
+    "VulkanRenderBackendMixin",
+    "VulkanBackendMixin",
+    "ProgramResourcesMixin",
+    "ProgramResourceBindingsMixin",
+    "VulkanProgramResourcesMixin",
+    "VulkanResourceSetsMixin",
+    "VulkanResourceSnapshotMixin",
+    "VulkanResourceTransformerMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

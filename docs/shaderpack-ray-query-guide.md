@@ -1,13 +1,14 @@
-# IrisRT 光影包适配与 Ray Query 实现指南
+# LuminRT 光影包适配与 Ray Query 实现指南
 
 本文面向已经了解 Iris/OptiFine 光影包目录结构、GLSL 和 Vulkan 光线追踪概念的光影作者。
-目标是说明 IrisRT 当前能提供什么、如何声明场景 TLAS，以及如何在普通 `gbuffer`、`composite` 或 `compute` shader 中用 `GL_EXT_ray_query` 写出与 ray tracing pipeline 相同的查询逻辑。
+LuminRT 是 Iris Vulkan 的光线追踪拓展，目前仅支持 RayQuery；不提供独立的 Ray Tracing Pipeline。
+目标是说明 LuminRT 当前能提供什么、如何声明场景 TLAS，以及如何在普通 `gbuffer`、`composite` 或 `compute` shader 中用 `GL_EXT_ray_query` 写出与 ray tracing pipeline 相同的查询逻辑。
 
 本文依据本项目当前的 Iris Vulkan 1.11.6、Minecraft 26.3 参考源码和 `GL_EXT_ray_query` 规范编写。`references/` 仅是开发参考，光影包不需要携带这些文件。
 
 ## 1. 能力、前提和开关
 
-IrisRT 只在 Vulkan 后端尝试创建加速结构。设备需要支持：
+LuminRT 只在 Vulkan 后端尝试创建加速结构。设备需要支持：
 
 - `VK_KHR_acceleration_structure`；
 - buffer device address；
@@ -15,7 +16,7 @@ IrisRT 只在 Vulkan 后端尝试创建加速结构。设备需要支持：
 
 OpenGL 后端没有 AS 资源。设备不支持时，光影包应保留软件路径；不要只判断宏就假定硬件查询一定可用。
 
-IrisRT 设置中的 **Iris-Raytracing → 设置** 控制拓展宏。开启时 Iris 标准宏环境加入：
+LuminRT 设置中的 **LuminRT → 设置** 控制拓展宏。开启时 Iris 标准宏环境加入：
 
 ```glsl
 ENABLED_LUMIN_RAY_TRACING_EXTENSION
@@ -33,18 +34,18 @@ ENABLED_LUMIN_RAY_TRACING_EXTENSION
 
 ## 2. 场景资源声明和坐标
 
-自动场景资源的名称是 `irisrt_Scene`，类型为标量 `accelerationStructureEXT`：
+自动场景资源的名称是 `luminrt_Scene`，类型为标量 `accelerationStructureEXT`：
 
 ```glsl
 #ifdef ENABLED_LUMIN_RAY_TRACING_EXTENSION
 #extension GL_EXT_ray_query : require
-uniform accelerationStructureEXT irisrt_Scene;
+uniform accelerationStructureEXT luminrt_Scene;
 #endif
 ```
 
-IrisRT 在 shader 资源转换阶段识别该声明，并为它分配 set 0 中的空闲 binding。不要指定或依赖原始 `layout(binding=...)` 数字；不同阶段同名声明必须保持完全相同的标量/数组形态。
+LuminRT 在 shader 资源转换阶段识别该声明，并为它分配 set 0 中的空闲 binding。不要指定或依赖原始 `layout(binding=...)` 数字；不同阶段同名声明必须保持完全相同的标量/数组形态。
 
-当前自动资源还支持普通固定长度一维数组，但 `irisrt_Scene` 自动绑定只提供一个 TLAS（标量或长度为 1 的数组）。数组资源需要宿主显式通过 `AccelerationStructureBindings.setAccelerationStructures` 注册，普通光影包不能调用这个 Java API。
+当前自动资源还支持普通固定长度一维数组，但 `luminrt_Scene` 自动绑定只提供一个 TLAS（标量或长度为 1 的数组）。数组资源需要宿主显式通过 `AccelerationStructureBindings.setAccelerationStructures` 注册，普通光影包不能调用这个 Java API。
 
 场景采用相机相对坐标：
 
@@ -74,7 +75,7 @@ CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 
 
 ## 4. 从 ray tracing pipeline 映射到 ray query
 
-普通 Vulkan ray tracing pipeline 通常有 ray generation、intersection、any-hit、closest-hit、miss 和 callable shader，并通过 SBT 选择每个实例的记录。IrisRT 当前没有 `VK_KHR_ray_tracing_pipeline`、SBT 或 `traceRayEXT` 路径；ray query 把 traversal 嵌入已有 graphics/compute shader，由调用 shader 自己完成这些职责。
+普通 Vulkan ray tracing pipeline 通常有 ray generation、intersection、any-hit、closest-hit、miss 和 callable shader，并通过 SBT 选择每个实例的记录。LuminRT 当前没有 `VK_KHR_ray_tracing_pipeline`、SBT 或 `traceRayEXT` 路径；ray query 把 traversal 嵌入已有 graphics/compute shader，由调用 shader 自己完成这些职责。
 
 对应关系如下：
 
@@ -99,7 +100,7 @@ ray query 的 traversal 循环必须在同一个 invocation 内完成。它不�
 
 ```glsl
 rayQueryEXT q;
-rayQueryInitializeEXT(q, irisrt_Scene,
+rayQueryInitializeEXT(q, luminrt_Scene,
     gl_RayFlagsNoneEXT, 255u,
     origin, 0.001, direction, maxDistance);
 
@@ -135,7 +136,7 @@ if (committed == gl_RayQueryCommittedIntersectionTriangleEXT) {
 
 ```glsl
 rayQueryEXT shadow;
-rayQueryInitializeEXT(shadow, irisrt_Scene,
+rayQueryInitializeEXT(shadow, luminrt_Scene,
     gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
     255u, shadowOrigin, 0.001, lightDirection, lightDistance - 0.002);
 while (rayQueryProceedEXT(shadow)) {}
@@ -189,13 +190,13 @@ vec3 origin = vec3(0.0);
 ray query 不支持在 query 内递归。第一次命中后，shader 自己计算反射或折射方向，然后初始化第二个 query：
 
 ```glsl
-IrisRTHit first = irisrtTraceClosest(origin, primaryDirection, 0.001, far);
+LuminRTHit first = luminrtTraceClosest(origin, primaryDirection, 0.001, far);
 if (!first.found) return skyRadiance(primaryDirection);
 
 vec3 normal = loadNormalFromGeometryTable(first);
 vec3 bounceDirection = normalize(reflect(primaryDirection, normal));
 vec3 bounceOrigin = first.position + normal * 0.001;
-IrisRTHit second = irisrtTraceClosest(bounceOrigin, bounceDirection, 0.001, far);
+LuminRTHit second = luminrtTraceClosest(bounceOrigin, bounceDirection, 0.001, far);
 vec3 incoming = second.found ? evaluateSecondHit(second) : skyRadiance(bounceDirection);
 return evaluateFirstHit(first, incoming);
 ```
@@ -213,7 +214,7 @@ vec3 origin = cameraOrigin;
 vec3 direction = primaryDirection;
 
 for (int bounce = 0; bounce < 4; ++bounce) {
-    IrisRTHit hit = irisrtTraceClosest(origin, direction, 0.001, far);
+    LuminRTHit hit = luminrtTraceClosest(origin, direction, 0.001, far);
     if (!hit.found) { radiance += throughput * skyRadiance(direction); break; }
 
     Material material = loadMaterialFromGeometryTable(hit);
@@ -230,7 +231,7 @@ for (int bounce = 0; bounce < 4; ++bounce) {
 }
 ```
 
-这个示例中的 `Material`、`loadMaterialFromGeometryTable`、`sampleBsdf` 和 `BsdfSample` 是光影包自己的实现，不是 IrisRT 提供的 API。当前 IrisRT 无法由 hit 自动还原 `Material`；屏幕 G-buffer 只能描述第一段可见光栅表面，不能还原离屏或第二次命中；这些命中需要 CPU 发布的几何/材质表或自定义 SSBO，并自行保证 `instance/geometry/primitive` 到材质的映射。
+这个示例中的 `Material`、`loadMaterialFromGeometryTable`、`sampleBsdf` 和 `BsdfSample` 是光影包自己的实现，不是 LuminRT 提供的 API。当前 LuminRT 无法由 hit 自动还原 `Material`；屏幕 G-buffer 只能描述第一段可见光栅表面，不能还原离屏或第二次命中；这些命中需要 CPU 发布的几何/材质表或自定义 SSBO，并自行保证 `instance/geometry/primitive` 到材质的映射。
 
 随机采样需要稳定的 pixel/bounce seed；不要用 query traversal 次数作为随机数。需要 Russian roulette 时，在至少一两次 bounce 后按 throughput 计算生存概率，并除以该概率保持估计量无偏。
 
@@ -251,7 +252,7 @@ for (int bounce = 0; bounce < 4; ++bounce) {
 
 ## 10. Descriptor、数组和阶段规则
 
-AS 声明由 IrisRT 的 shader layout transformer 在普通资源 lowering 前提取。set/binding 会被重新分配到 set 0 的空闲 binding。跨 vertex/fragment/compute 阶段的同名资源必须有相同数量和数组形态；缺少注册、数组长度不符、绑定 BLAS、未构建 TLAS 或已关闭 TLAS 都会在资源解析时抛错。
+AS 声明由 LuminRT 的 shader layout transformer 在普通资源 lowering 前提取。set/binding 会被重新分配到 set 0 的空闲 binding。跨 vertex/fragment/compute 阶段的同名资源必须有相同数量和数组形态；缺少注册、数组长度不符、绑定 BLAS、未构建 TLAS 或已关闭 TLAS 都会在资源解析时抛错。
 
 descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不会误绑定新资源；TLAS 和其引用 BLAS 会延迟到 GPU 完成后释放。shader 只应在正常 Iris pipeline 的资源解析路径中使用 AS，不要把 handle 当作普通 image binding。
 
@@ -265,7 +266,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 - **用 `primitiveIndex` 查 Minecraft 原始 vertex buffer。** AS 是独立复制的三角化几何，原版绘制 buffer 可能已释放、排序或复用，且当前没有稳定的 geometry-to-material 表。
 - **把 cutout/translucent 当作 alpha-aware。** 当前 AS 没有 UV/纹理/alpha test。
 - **把相机绝对坐标直接写入 ray origin。** 场景是相机相对坐标，应从 `vec3(0)` 开始。
-- **在 render pass 内自行录制 Vulkan AS 命令。** IrisRT 已在 render pass 外完成构建；光影包只通过 shader 资源使用 TLAS。
+- **在 render pass 内自行录制 Vulkan AS 命令。** LuminRT 已在 render pass 外完成构建；光影包只通过 shader 资源使用 TLAS。
 - **每次 bounce 使用零偏移。** 会造成 self-intersection；使用基于法线和场景尺度的有限 offset，并清洗非有限值。
 - **对 Iris 已转换的深度再次 reverse-Z。** 正常 shaderpack 路径使用 Iris 提供的逆矩阵和深度 helper，原始后端纹理另行核对。
 
@@ -273,7 +274,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 
 `docs/examples/ray-query/` 提供一个几何诊断示例：
 
-- `lib/irisrt_ray_query.glsl`：最近命中和首命中遮挡 helper；
+- `lib/luminrt_ray_query.glsl`：最近命中和首命中遮挡 helper；
 - `composite.vsh` / `composite.fsh`：把屏幕像素射线转换到相机相对世界空间，显示 barycentrics；
 - 示例关闭宏时继续显示 `colortex0`。
 
@@ -299,7 +300,7 @@ GPU smoke 用于覆盖 BLAS/TLAS 构建、更新、数组 descriptor、compute/f
 
 ## 13. 材质适配的数据契约
 
-以下是**后续扩展的设计建议，不是已提供的 IrisRT shader API**。普通 ray tracing pipeline 的 closest-hit 也需要顶点/材质表；改成 ray query 不会自动获得这些数据。
+以下是**后续扩展的设计建议，不是已提供的 LuminRT shader API**。普通 ray tracing pipeline 的 closest-hit 也需要顶点/材质表；改成 ray query 不会自动获得这些数据。
 
 建议宿主同步发布以下表：
 
@@ -336,7 +337,7 @@ custom index 当前随实例集合变化而变化。不能把上一帧的 custom
 ```glsl
 rayQueryEXT q;
 // 强制所有三角形成为可供应用筛选的候选。
-rayQueryInitializeEXT(q, irisrt_Scene, gl_RayFlagsNoOpaqueEXT, 255u,
+rayQueryInitializeEXT(q, luminrt_Scene, gl_RayFlagsNoOpaqueEXT, 255u,
     origin, tMin, direction, tMax);
 while (rayQueryProceedEXT(q)) {
     if (rayQueryGetIntersectionTypeEXT(q, false)
@@ -391,11 +392,11 @@ void shadeHit(HitRecord record, Surface surface, inout RadiancePayload p) {
 
 GLSL 不支持递归函数。单条随机路径用 bounce 循环即可；确定性反射加折射同时分叉，需要显式固定大小的任务栈：每项保存 ray、weight、depth、medium。pop 一个任务，追踪并累加；push 两个子任务，分别乘 Fresnel 权重和透射权重。栈溢出/深度截断必须有确定处理，不能默默覆盖待执行任务。分叉任务数可能指数增长，通常改用按 Fresnel 概率随机选择一个分支，并用概率归一化其权重。
 
-wavefront 架构也可把 ray 状态写入 SSBO 队列，分多个 compute pass 完成 trace/shade/compact；队列计数、容量、dispatch 间同步和资源生命周期需要另行实现。当前 IrisRT 没有自动 ray 队列、跨 pass payload 或 ray tracing shader 调度器。
+wavefront 架构也可把 ray 状态写入 SSBO 队列，分多个 compute pass 完成 trace/shade/compact；队列计数、容量、dispatch 间同步和资源生命周期需要另行实现。当前 LuminRT 没有自动 ray 队列、跨 pass payload 或 ray tracing shader 调度器。
 
 ## 15. AABB intersection 的等价实现示例
 
-当前 `irisrt_Scene` 没有 AABB。以下假定宿主创建 AABB BLAS，并通过自定义名称注册 TLAS；用于说明如何迁移 procedural intersection shader。`loadSphere` 需要查询键对应的球数据，不能从 AABB 的候选 getter 得到球体定义。
+当前 `luminrt_Scene` 没有 AABB。以下假定宿主创建 AABB BLAS，并通过自定义名称注册 TLAS；用于说明如何迁移 procedural intersection shader。`loadSphere` 需要查询键对应的球数据，不能从 AABB 的候选 getter 得到球体定义。
 
 ```glsl
 if (rayQueryGetIntersectionTypeEXT(q, false)
@@ -493,7 +494,7 @@ compute 写 `colorimgN` 时，image 格式必须与目标 colortex 格式一致�
 
 ## 18. 宿主绑定与适配验收
 
-普通光影包只声明 `irisrt_Scene`。模组集成自定义 TLAS 时，在 `ProgramResources.finish()` 及 pipeline 创建前注册：
+普通光影包只声明 `luminrt_Scene`。模组集成自定义 TLAS 时，在 `ProgramResources.finish()` 及 pipeline 创建前注册：
 
 ```java
 AccelerationStructureBindings.of(resources)

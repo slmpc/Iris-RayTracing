@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "IrisRT"
+rootProject.name = "LuminRT"

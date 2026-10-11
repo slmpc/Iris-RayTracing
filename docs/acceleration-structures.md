@@ -68,13 +68,13 @@ OpenGL 的 `accelerationStructures()` 返回 `null`。Vulkan 不支持所需扩�
 
 ## 世界几何的生成与更新
 
-开启 Iris-Raytracing 拓展后，IrisRT 自动维护场景 TLAS。光影包声明以下标量资源即可使用，
+开启 LuminRT 拓展后，LuminRT 自动维护场景 TLAS。光影包声明以下标量资源即可使用，
 无需手动注册；其他名称的 AS 仍遵循后面的显式注册接口。
 
 ```glsl
 #version 460
 #extension GL_EXT_ray_query : require
-uniform accelerationStructureEXT irisrt_Scene;
+uniform accelerationStructureEXT luminrt_Scene;
 ```
 
 场景使用**相机相对世界坐标**，射线方向为世界轴方向，不含 view rotation。
@@ -101,7 +101,7 @@ uniform accelerationStructureEXT irisrt_Scene;
 
 实现参考 `prime-pt` 的静态 BLAS 保留、结构变化与姿态变化分离，以及依 GPU 完成回收资源的思路；
 没有移植其 Rust 场景编译器、压缩、材质系统或完成槽上传机制。
-所有 AS 命令沿用 IrisRT 图形队列的同步与延迟销毁，不增加 CPU fence 等待或独立队列。
+所有 AS 命令沿用 LuminRT 图形队列的同步与延迟销毁，不增加 CPU fence 等待或独立队列。
 
 当前支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
 四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
@@ -123,7 +123,7 @@ uniform accelerationStructureEXT irisrt_Scene;
 按需 GPU smoke 也加入场景空 TLAS、refit、替换和删除路径；**本次仅编译该测试，未启动游戏执行**。
 实际 Mixin 注入、世界采集及 GPU ray query 命中效果仍需游戏验收。
 
-手动验证时使用 Vulkan 启动并开启拓展，加载声明 `irisrt_Scene` 的光影包，
+手动验证时使用 Vulkan 启动并开启拓展，加载声明 `luminrt_Scene` 的光影包，
 检查放置/破坏方块、区段卸载与复用、实体移动、远坐标移动、切换维度、关闭拓展及重载光影。
 带 Vulkan 验证层的独立场景 smoke 命令仍为 `.\gradlew.bat -PasSmokeTest runClient`。
 
@@ -138,7 +138,7 @@ uniform accelerationStructureEXT scene;
 // 着色器中的数组声明：uniform accelerationStructureEXT scenes[2];
 ```
 
-IrisRT 扩展 `VulkanResourceTransformer`，在普通 uniform lowering 前识别 AS，
+LuminRT 扩展 `VulkanResourceTransformer`，在普通 uniform lowering 前识别 AS，
 随后统一分配 set 0 中未被其他资源占用的 binding。原始 `layout(set=..., binding=...)`
 会重新分配，调用方按资源名称注册，不依赖原始 binding 数字。
 跨着色器阶段的同名 AS 必须具有相同的标量/数组形态和数量。
@@ -198,10 +198,10 @@ AABB BLAS 构建、错误更新和已关闭资源的拒绝、GPU fence 完成与
 TLAS 数组中命中与未命中、交换数组元素、相同绑定的缓存复用、fragment shader 查询、
 错误数量/名称、缺少注册、BLAS/未构建/已关闭 TLAS 的拒绝，以及 TLAS 在 shader 工作录制后、提交前关闭的生命周期。
 OpenGL 测试检查后端返回 `null`。成功后写入 `build/smoke-run-*/as-smoke-passed.txt` 并退出游戏。
-检查当次日志中的 `IRISRT_AS_SMOKE_PASSED` 与 Vulkan validation 消息，不只依赖标记文件。
+检查当次日志中的 `LUMINRT_AS_SMOKE_PASSED` 与 Vulkan validation 消息，不只依赖标记文件。
 
 集成测试还验证 Sodium 的拓展开关注册、应用与配置持久化，以及实际 Mixin 注入的宏在 GLSL 预处理中的启用和关闭分支。
-这部分通过后日志输出 `IRISRT_SETTINGS_SMOKE_PASSED`；测试在游戏资源加载完成后执行，以便使用 Sodium 的完整设置。
+这部分通过后日志输出 `LUMINRT_SETTINGS_SMOKE_PASSED`；测试在游戏资源加载完成后执行，以便使用 Sodium 的完整设置。
 
 另有 10 项单元测试，覆盖配置默认值和持久化、几何数据约束及 AS 声明的阶段合并、binding 分配和冲突处理。
 已在 NVIDIA GeForce RTX 4060 Laptop GPU 上开启 Vulkan 验证层验证上述 GPU 路径，未发现 Vulkan 验证错误；

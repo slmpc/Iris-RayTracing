@@ -1,0 +1,6 @@
+{
+  "options.luminrt.title": "LuminRT",
+  "options.luminrt.settings": "设置",
+  "options.luminrt.extension": "启用 LuminRT 拓展",
+  "options.luminrt.extension.tooltip": "启用 Iris Vulkan 兼容光影包中的 RayQuery 光线追踪拓展。目前仅支持 RayQuery。应用此选项后会重新加载光影包。"
+}
