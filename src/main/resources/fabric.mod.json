@@ -8,7 +8,7 @@
   "license": "All Rights Reserved",
   "environment": "client",
   "entrypoints": {
-    "client": ["com.github.slmpc.irisrt.IrisRTClient"]
+    "client": ["com.github.slmpc.irisrt.IrisRT"]
   },
   "depends": {
     "fabricloader": ">=${loader_version}",

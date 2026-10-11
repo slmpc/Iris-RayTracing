@@ -16,24 +16,14 @@ repositories {
     }
 }
 
-loom {
-    splitEnvironmentSourceSets()
-    mods {
-        create("irisrt") {
-            sourceSet(sourceSets.main.get())
-            sourceSet(sourceSets["client"])
-        }
-    }
-}
-
 dependencies {
     minecraft(libs.minecraft)
     implementation(libs.fabric.loader)
     implementation(libs.fabric.api)
 
     // Minecraft 26.3 and this Iris JAR use official names; no remapping is needed.
-    "clientImplementation"(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
-    "clientRuntimeOnly"(libs.sodium)
+    implementation(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
+    runtimeOnly(libs.sodium)
 }
 
 tasks.processResources {
