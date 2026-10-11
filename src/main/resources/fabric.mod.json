@@ -7,8 +7,8 @@
   "authors": ["slmpc"],
   "license": "GPL-3.0-only",
   "contact": {
-    "sources": "https://github.com/slmpc/Iris-RayTracing",
-    "issues": "https://github.com/slmpc/Iris-RayTracing/issues"
+    "sources": "https://github.com/slmpc/Lumin-RT",
+    "issues": "https://github.com/slmpc/Lumin-RT/issues"
   },
   "environment": "client",
   "mixins": ["luminrt.mixins.json"],
