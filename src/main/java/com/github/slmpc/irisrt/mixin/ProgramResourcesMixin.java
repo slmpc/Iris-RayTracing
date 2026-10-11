@@ -2,6 +2,7 @@ package com.github.slmpc.irisrt.mixin;
 
 import com.github.slmpc.irisrt.rhi.*;
 import com.github.slmpc.irisrt.vulkan.AccelerationStructureDescriptors;
+import com.github.slmpc.irisrt.scene.WorldAccelerationStructures;
 import net.irisshaders.iris.pipeline.transform.ShaderResourceLayout;
 import net.irisshaders.iris.samplers.PackSamplers;
 import net.irisshaders.iris.samplers.ProgramResources;
@@ -24,6 +25,9 @@ public abstract class ProgramResourcesMixin implements AccelerationStructureBind
             if (AccelerationStructureDescriptors.isAccelerationStructure(descriptor)) {
                 irisrt$declarations.put(descriptor.name(), descriptor);
                 imageDeclarations.remove(descriptor.name());
+                if (WorldAccelerationStructures.SHADER_NAME.equals(descriptor.name()) && descriptor.count() == 1) {
+                    irisrt$bindings.put(descriptor.name(), () -> List.of(WorldAccelerationStructures.current()));
+                }
             }
         }
     }

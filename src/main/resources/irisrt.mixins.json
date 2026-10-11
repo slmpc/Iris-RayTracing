@@ -4,6 +4,13 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "StandardMacrosMixin",
+    "SectionCompilerMixin",
+    "SectionCompilerResultsMixin",
+    "CompiledSectionMeshMixin",
+    "RenderSectionMixin",
+    "StagedVertexBufferDrawMixin",
+    "LevelRendererMixin",
+    "PipelineManagerMixin",
     "RenderBackendMixin",
     "VulkanRenderBackendMixin",
     "VulkanBackendMixin",

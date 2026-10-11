@@ -43,7 +43,7 @@ public sealed interface AccelerationGeometry {
     record Instances(AccelerationStructureBuffer buffer, long offset,
                      int primitiveCount) implements AccelerationGeometry {
         public Instances {
-            require(primitiveCount > 0, "Instance count must be positive");
+            require(primitiveCount >= 0, "Instance count must be non-negative");
             range(buffer, offset, Math.multiplyExact(primitiveCount, 64L), 16);
         }
 

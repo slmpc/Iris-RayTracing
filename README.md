@@ -38,6 +38,11 @@ Sodium 视频设置中的 **Iris-Raytracing → 设置** 提供拓展开关，�
 接口使用、实现分析和验证命令见 [docs/acceleration-structures.md](docs/acceleration-structures.md)。
 Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 下。
 
+开启拓展后自动收集地形及主世界 staged vertex 路径中的实体、方块实体、移动方块和粒子顶点，
+维护区段 BLAS、动态 BLAS 与相机相对 TLAS。光影声明 `uniform accelerationStructureEXT irisrt_Scene;`
+即可自动绑定场景；动态拓扑不变时 refit，区段和拓扑变化时重建，卸载与重载会释放旧资源。
+当前仅提供几何，尚无材质/UV/alpha test 数据，也不包含 shader 顶点位移。
+
 ## 许可证
 
 本项目原创内容暂为 **All Rights Reserved（保留所有权利）**，详见 `LICENSE`。

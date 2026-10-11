@@ -64,7 +64,68 @@ TLAS 输入为连续的 64 字节 `VkAccelerationStructureInstanceKHR` 记录，
 OpenGL 的 `accelerationStructures()` 返回 `null`。Vulkan 不支持所需扩展或特性时，
 不添加这些设备要求，`isSupported()` 返回 `false`；尝试创建或构建会抛出 `UnsupportedOperationException`。
 可用时启用 `VK_KHR_ray_query` 和 `rayQuery`，`supportsRayQuery()` 单独报告该能力。
-尚未添加 ray tracing pipeline、SBT、`traceRays` 或世界几何收集。
+尚未添加 ray tracing pipeline、SBT 或 `traceRays`。世界几何收集与场景管理见下节。
+
+## 世界几何的生成与更新
+
+开启 Iris-Raytracing 拓展后，IrisRT 自动维护场景 TLAS。光影包声明以下标量资源即可使用，
+无需手动注册；其他名称的 AS 仍遵循后面的显式注册接口。
+
+```glsl
+#version 460
+#extension GL_EXT_ray_query : require
+uniform accelerationStructureEXT irisrt_Scene;
+```
+
+场景使用**相机相对世界坐标**，射线方向为世界轴方向，不含 view rotation。
+从相机发射的射线起点为 `vec3(0.0)`；世界位置先减去本帧相机位置。
+实例平移先在 CPU 用 double 相减，再转为 float，避免直接把远距离世界坐标写入 BLAS。
+
+- 地形：在当前 Minecraft 26.3 的 `SectionCompiler.compile` 返回时复制各层真实 CPU 顶点。
+  快照随 `CompiledSectionMesh` 保存，在 `RenderSection.setSectionMesh` 正式发布后才进入场景。
+  每个区段一个 BLAS，solid/cutout/translucent 各为独立 geometry；未变化的区段不重新上传或构建。
+  区段重编译替换 BLAS；透明排序仅修改光栅索引，不触发 AS 重建。
+  `reset`、区段复用和世界重置删除旧实例，编译时坐标及世界 epoch 防止旧结果进入新的区段或世界。
+- 动态顶点：仅在主世界 `FeatureRenderDispatcher.prepareFrame` 期间采集
+  `StagedVertexBuffer.Draw.append` 的真实 `MeshData`，包括走此路径的实体、方块实体、移动方块及粒子。
+  采集后、创建主渲染通道前构建本帧动态 BLAS 和 TLAS。
+  动态批次的 geometry 数量、顶点数量、索引及 opaque 属性完全一致时 refit；否则重建。
+  当前将这些批次合入一个动态实例，不提供逐实体的稳定身份。
+- TLAS：相机平移或动态 refit、实例数量不变时原地 update；地形/BLAS 引用变化时 build。
+  实例数量变化时替换 TLAS 和实例输入缓冲区。空场景使用真正的零实例 TLAS。
+  相机与几何均未变化时跳过上传和构建。帧起始的 begin/setup 使用已发布地形与上一帧动态数据，
+  本帧动态数据在 feature 准备完成后可供 shadow/prepare/gbuffers/deferred/composite 使用。
+- 生命周期：TLAS 显式持有引用的 BLAS。替换时，旧 BLAS 租约在已录制 GPU 工作完成后释放；
+  descriptor 快照持有旧 TLAS 时，其 BLAS 仍保持有效。重载 pipeline 释放 GPU 场景，
+  当前区段的 CPU 快照供后续重建；世界重置清空区段注册并使旧工作线程发布失效。
+
+实现参考 `prime-pt` 的静态 BLAS 保留、结构变化与姿态变化分离，以及依 GPU 完成回收资源的思路；
+没有移植其 Rust 场景编译器、压缩、材质系统或完成槽上传机制。
+所有 AS 命令沿用 IrisRT 图形队列的同步与延迟销毁，不增加 CPU fence 等待或独立队列。
+
+当前支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
+四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
+仅 solid 地形标记 opaque，cutout、translucent 和动态几何保留 ray query candidate。
+**当前只收集几何位置，不提供 UV、纹理、材质表或 alpha test**；候选命中是否确认由 shader 决定，
+`gl_RayFlagsOpaqueEXT` 会把叶片透明区域等也视为几何遮挡。
+源模型的面剔除仍沿用原版编译输出，shader 顶点位移尚未反映到 AS。
+天空、云、天气、世界边界、第一人称手持物及绕过上述 CPU 顶点路径的自定义 GPU 绘制未接入。
+动态采集可能包含同一路径的贴图覆盖层，不声明逐材质或物理表面的去重。
+
+每次动态准备会复制位置与索引；动态 BLAS 稳定拓扑时只上传位置。
+相机移动时目前仍全量重写 TLAS 实例，输入上传及逐 BLAS 构建沿用保守屏障，
+未实现 prime-pt 的批量 scratch、局部实例上传、BLAS compaction 或构建预算。
+可通过 `WorldAccelerationStructures.statistics()` 查看驻留网格及 BLAS/TLAS build/update 次数；
+未做实际游戏帧率或显存测量，不声称达到 prime-pt 的性能。
+
+新增无窗口测试覆盖三角化绕序、源内存释放后的快照有效性、动态 refit、拓扑变化重建、
+大坐标相机相对变换、静态 BLAS 复用、空场景、删除及分配/构建失败后的重试。
+按需 GPU smoke 也加入场景空 TLAS、refit、替换和删除路径；**本次仅编译该测试，未启动游戏执行**。
+实际 Mixin 注入、世界采集及 GPU ray query 命中效果仍需游戏验收。
+
+手动验证时使用 Vulkan 启动并开启拓展，加载声明 `irisrt_Scene` 的光影包，
+检查放置/破坏方块、区段卸载与复用、实体移动、远坐标移动、切换维度、关闭拓展及重载光影。
+带 Vulkan 验证层的独立场景 smoke 命令仍为 `.\gradlew.bat -PasSmokeTest runClient`。
 
 ## 传入 Iris Pipeline
 

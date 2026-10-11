@@ -4,6 +4,9 @@ import com.github.slmpc.irisrt.rhi.AccelerationStructure;
 import com.github.slmpc.irisrt.rhi.AccelerationStructureDescription;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkAccelerationStructureDeviceAddressInfoKHR;
+import java.util.List;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
@@ -20,6 +23,7 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     boolean built;
     private int descriptorReferences;
     private boolean destructionQueued;
+    private Set<VulkanAccelerationStructure> referencedStructures = Set.of();
 
     VulkanAccelerationStructure(VulkanAccelerationStructureBackend owner, AccelerationStructureDescription description,
                                 VulkanAccelerationStructureBuffer storage, long handle, long buildScratchSize, long updateScratchSize) {
@@ -60,6 +64,26 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     }
 
     @Override
+    public void setReferencedStructures(List<AccelerationStructure> structures) {
+        checkOpen();
+        if (type() != Type.TOP_LEVEL) throw new IllegalStateException("Only TLAS can retain BLAS references");
+        var next = new LinkedHashSet<VulkanAccelerationStructure>();
+        for (var value : List.copyOf(structures)) {
+            if (!(value instanceof VulkanAccelerationStructure blas) || blas.owner != owner
+                    || blas.type() != Type.BOTTOM_LEVEL || !blas.built || blas.closed) {
+                throw new IllegalArgumentException("Expected a built BLAS from the same backend");
+            }
+            next.add(blas);
+        }
+        for (var blas : next) if (!referencedStructures.contains(blas)) blas.retainDescriptor();
+        var removed = referencedStructures.stream().filter(blas -> !next.contains(blas)).toList();
+        referencedStructures = Set.copyOf(next);
+        // 同一 TLAS 原地重建前的命令仍可能访问旧 BLAS，释放必须经过编码器的完成队列。
+        if (!removed.isEmpty()) owner.device.createCommandEncoder().queueForDestroy(
+                () -> removed.forEach(VulkanAccelerationStructure::releaseDescriptor));
+    }
+
+    @Override
     public boolean isClosed() { return closed; }
 
     void checkOpen() {
@@ -84,6 +108,8 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
             owner.device.createCommandEncoder().queueForDestroy(() -> {
                 vkDestroyAccelerationStructureKHR(owner.device.vkDevice(), handle, null);
                 storage.destroy();
+                referencedStructures.forEach(VulkanAccelerationStructure::releaseDescriptor);
+                referencedStructures = Set.of();
             });
         }
     }

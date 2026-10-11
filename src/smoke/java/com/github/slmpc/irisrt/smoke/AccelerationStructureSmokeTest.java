@@ -2,6 +2,8 @@ package com.github.slmpc.irisrt.smoke;
 
 import com.github.slmpc.irisrt.IrisRT;
 import com.github.slmpc.irisrt.rhi.*;
+import com.github.slmpc.irisrt.scene.SceneAccelerationStructure;
+import com.github.slmpc.irisrt.scene.TriangleMesh;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -44,6 +46,20 @@ public final class AccelerationStructureSmokeTest implements ClientModInitialize
             return;
         }
         require(backend != null && backend.isSupported(), "An AS-capable Vulkan GPU is required");
+        // 场景路径覆盖空 TLAS、动态 refit、结构替换及删除最后一个实例。
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.build(0, 0, 0);
+            var mesh = new TriangleMesh(new float[]{0,0,0, 1,0,0, 0,1,0}, new int[]{0,1,2}, true);
+            scene.put("dynamic", List.of(mesh), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            scene.put("dynamic", List.of(mesh), 0, 0, 0, true);
+            scene.build(1, 0, 0);
+            scene.put("dynamic", List.of(mesh), 0, 0, 0, false);
+            scene.build(1, 0, 0);
+            scene.remove("dynamic");
+            scene.build(1, 0, 0);
+            awaitGpu();
+        }
         ByteBuffer vertices = MemoryUtil.memAlloc(36).order(ByteOrder.nativeOrder());
         ByteBuffer instances = MemoryUtil.memCalloc(64).order(ByteOrder.nativeOrder());
         ByteBuffer aabbs = MemoryUtil.memAlloc(24).order(ByteOrder.nativeOrder());
