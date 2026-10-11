@@ -25,6 +25,12 @@ Iris 以本地文件形式加入客户端编译和运行类路径，不打包进
 安装模组时，需要另外安装 Fabric API、上述 Iris 和兼容的 Sodium 0.9.x。
 Minecraft 26.3 使用官方命名，无需 Yarn 映射。
 
+## 加速结构 RHI
+
+已添加 Vulkan BLAS/TLAS 创建、构建、更新、设备地址与延迟释放支持；OpenGL 返回空支持。
+接口使用、实现分析和验证命令见 [docs/acceleration-structures.md](docs/acceleration-structures.md)。
+Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 下。
+
 ## 许可证
 
 本项目原创内容暂为 **All Rights Reserved（保留所有权利）**，详见 `LICENSE`。

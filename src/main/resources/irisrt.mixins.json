@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.github.slmpc.irisrt.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "RenderBackendMixin",
+    "VulkanRenderBackendMixin",
+    "VulkanBackendMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "irisrt_smoke",
+  "version": "1.0.0",
+  "name": "IrisRT AS integration test",
+  "environment": "client",
+  "entrypoints": { "client": ["com.github.slmpc.irisrt.smoke.AccelerationStructureSmokeTest"] },
+  "depends": { "irisrt": "*", "fabric-api": "*" }
+}

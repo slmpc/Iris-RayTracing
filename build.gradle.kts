@@ -24,6 +24,36 @@ dependencies {
     // Minecraft 26.3 and this Iris JAR use official names; no remapping is needed.
     implementation(files("thirdparty/iris-vk-${libs.versions.iris.get()}.jar"))
     runtimeOnly(libs.sodium)
+
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+
+// Opt-in integration mod: exercises real GPU commands and exits, never packaged in IrisRT.
+if (providers.gradleProperty("asSmokeTest").isPresent) {
+    val smoke = sourceSets.create("smoke") {
+        compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+        runtimeClasspath += sourceSets.main.get().runtimeClasspath
+    }
+    val graphicsBackend = providers.gradleProperty("smokeBackend").getOrElse("VULKAN")
+    loom {
+        mods {
+            create("irisrt") { sourceSet(sourceSets.main.get()) }
+            create("irisrt_smoke") { sourceSet(smoke) }
+        }
+        runs.named("client") {
+            sourceSet.set(smoke.name)
+            programArguments.addAll("--graphicsBackend", graphicsBackend)
+            if (graphicsBackend == "VULKAN") programArguments.add("--vulkanValidation")
+            systemProperties.put("irisrt.smokeBackend", graphicsBackend)
+            runDirectory.set(layout.buildDirectory.dir("smoke-run-${graphicsBackend.lowercase()}"))
+        }
+    }
 }
 
 tasks.processResources {
