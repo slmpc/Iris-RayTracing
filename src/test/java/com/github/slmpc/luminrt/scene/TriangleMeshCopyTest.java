@@ -25,6 +25,8 @@ class TriangleMeshCopyTest {
                 MemoryUtil.memPutFloat(vertex + 4, i);
                 MemoryUtil.memPutFloat(vertex + 8, i + 10);
                 MemoryUtil.memPutFloat(vertex + 12, i + 20);
+                MemoryUtil.memPutFloat(vertex + 16, i * 0.25f);
+                MemoryUtil.memPutFloat(vertex + 20, 1 - i * 0.25f);
             }
             try (var mesh = new MeshData(source.build(), new MeshData.DrawState(format, 4, 6, PrimitiveTopology.QUADS, IndexType.SHORT))) {
                 copied = TriangleMesh.copy(mesh, false);
@@ -33,6 +35,7 @@ class TriangleMeshCopyTest {
         }
         assertArrayEquals(new float[]{0,10,20, 1,11,21, 2,12,22, 3,13,23}, copied.positions());
         assertArrayEquals(new int[]{0,1,2, 2,3,0}, copied.indices());
+        assertArrayEquals(new float[]{0,1, .25f,.75f, .5f,.5f, .75f,.25f}, copied.uvs());
         assertFalse(copied.opaque());
     }
 }

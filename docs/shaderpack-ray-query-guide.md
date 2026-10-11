@@ -65,13 +65,13 @@ CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 
 
 Sodium 地形使用 `a_Position` 为 `RG32_UINT` 的压缩 quads；原版/动态顶点采集接受 `Position` 为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。四边形固定三角化为 `0,1,2` 与 `2,3,0`。AS 中没有：
 
-- UV、法线、切线、顶点颜色和光照值；
+- 法线、切线、顶点颜色和光照值；UV 已通过独立只读 SSBO 提供，见 [场景 UV 接口](scene-uv.md)；
 - block/entity/material ID 的 shader 可读表；
 - alpha test、纹理采样或透明材质判定；
 - shader 中的顶点位移结果；
 - 天空、云、天气、世界边界、第一人称手持物和绕过 staged CPU 顶点路径的自定义 GPU 几何。
 
-因此当前 AS 命中只能可靠地表示“几何三角形命中”。不能从 `primitiveIndex` 推导纹理坐标，也不能把 cutout 当成已经执行 alpha test 的透明表面。`gl_RayFlagsOpaqueEXT` 会使 traversal 把候选按 opaque 方式处理；它不是 Minecraft 材质 alpha 语义的实现。
+当前 AS 命中表示几何三角形命中，结合 `luminrt_SceneUV` 可重建 UV，但仍不能把 cutout 当成已经执行 alpha test 的透明表面。`gl_RayFlagsOpaqueEXT` 会使 traversal 把候选按 opaque 方式处理；它不是 Minecraft 材质 alpha 语义的实现。
 
 ## 4. 从 ray tracing pipeline 映射到 ray query
 
@@ -264,7 +264,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 - **把 candidate 当作最终命中。** candidate 可能被更近的几何替换；最终结果读取 committed。
 - **把 instance custom index 当成 block ID。** 当前自动场景写入的是实例序号，不是材质或方块 ID。
 - **用 `primitiveIndex` 查 Minecraft 原始 vertex buffer。** AS 是独立复制的三角化几何，原版绘制 buffer 可能已释放、排序或复用，且当前没有稳定的 geometry-to-material 表。
-- **把 cutout/translucent 当作 alpha-aware。** 当前 AS 没有 UV/纹理/alpha test。
+- **把 cutout/translucent 当作 alpha-aware。** 当前已提供 UV，但没有纹理标识/材质 alpha 规则。
 - **把相机绝对坐标直接写入 ray origin。** 场景是相机相对坐标，应从 `vec3(0)` 开始。
 - **在 render pass 内自行录制 Vulkan AS 命令。** LuminRT 已在 render pass 外完成构建；光影包只通过 shader 资源使用 TLAS。
 - **每次 bounce 使用零偏移。** 会造成 self-intersection；使用基于法线和场景尺度的有限 offset，并清洗非有限值。
@@ -296,7 +296,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 
 GPU smoke 用于覆盖 BLAS/TLAS 构建、更新、数组 descriptor、compute/fragment ray query、资源替换和延迟销毁。启动实际游戏后还应检查：区段编译/卸载、区段复用、实体移动、相机远距离移动、维度切换、光影重载、拓展关闭以及不支持 ray query 的 Vulkan 设备 fallback。
 
-本文的完整路径追踪示例是逻辑模板，不是对当前几何数据接口的材质完整承诺。要实现可用的 Minecraft 光追材质，需要额外发布 UV/法线/材质索引与 alpha test 数据，并让它们与 BLAS 的 geometry/primitive 索引保持同一生命周期和拓扑版本。
+本文的完整路径追踪示例是逻辑模板，不是对当前几何数据接口的材质完整承诺。UV 已由 `luminrt_SceneUV` 提供；要实现完整 Minecraft 光追材质，仍需要额外发布法线/材质索引与 alpha test 数据，并让它们与 BLAS 的 geometry/primitive 索引保持同一生命周期和拓扑版本。
 
 ## 13. 材质适配的数据契约
 

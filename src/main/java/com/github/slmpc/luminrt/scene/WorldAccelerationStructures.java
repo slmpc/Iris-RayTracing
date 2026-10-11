@@ -100,6 +100,11 @@ public final class WorldAccelerationStructures {
     /** 已确认上传且保存 CPU 快照的 Sodium 区段数量，不包含动态实例。 */
     public static int terrainSectionCount() { return TERRAIN.size(); }
 
+    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentUV() {
+        current();
+        return scene.uvBuffer().shaderSlice();
+    }
+
     private static boolean ensureScene() {
         if (!LuminRT.getConfig().isExtensionEnabled()) {
             reset(false);

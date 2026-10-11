@@ -128,6 +128,40 @@ class SceneAccelerationStructureTest {
         return new TriangleMesh(new float[]{x, 0, 0, x + 1, 0, 0, x, 1, 0}, new int[]{0, 1, 2}, true);
     }
 
+    @Test
+    void updatesUVTableAlongsideRefitAndRetainsItForPositionOnlyChanges() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            var mesh = new TriangleMesh(triangle(0).positions(), new int[]{0,1,2}, new float[]{0,0, 1,0, 0,1}, true);
+            scene.put("dynamic", List.of(mesh), 0,0,0, true);
+            var tlas = (TestStructure)scene.build(0,0,0);
+            var blas = tlas.references.getFirst();
+            var first = (TestBuffer)scene.uvBuffer();
+            scene.build(1,0,0);
+            assertSame(first, scene.uvBuffer());
+            scene.put("dynamic", List.of(new TriangleMesh(triangle(1).positions(), mesh.indices(), mesh.uvs(), true)), 0,0,0, true);
+            scene.build(0,0,0);
+            assertSame(first, scene.uvBuffer());
+            scene.put("dynamic", List.of(new TriangleMesh(mesh.positions(), mesh.indices(), new float[]{.5f,0, 1,0, 0,1}, true)), 0,0,0, true);
+            scene.put("extra", List.of(triangle(0)), 0,0,0, false);
+            backend.failNextBuild = true;
+            assertThrows(IllegalStateException.class, () -> scene.build(0,0,0));
+            assertSame(first, scene.uvBuffer());
+            assertFalse(first.closed);
+            scene.build(0,0,0);
+            assertTrue(first.closed);
+            assertSame(blas, tlas.references.getFirst());
+            var updated = (TestBuffer)scene.uvBuffer();
+            int geometry = updated.data.getInt(16);
+            int triangles = updated.data.getInt(geometry * 16);
+            assertEquals(.5f, updated.data.getFloat(triangles * 16));
+            scene.remove("dynamic"); scene.remove("extra"); scene.build(0,0,0);
+            assertTrue(updated.closed);
+            assertEquals(16, scene.uvBuffer().size());
+        }
+        assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
+    }
+
     private static final class TestBackend implements AccelerationStructureBackend {
         final List<TestBuffer> buffers = new ArrayList<>();
         final List<TestStructure> structures = new ArrayList<>();

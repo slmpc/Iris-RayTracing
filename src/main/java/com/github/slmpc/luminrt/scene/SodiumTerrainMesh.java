@@ -23,6 +23,10 @@ public final class SodiumTerrainMesh {
         if (count == 0) return null;
         var source = vertices.duplicate().order(ByteOrder.nativeOrder());
         float[] xyz = new float[Math.multiplyExact(count, 3)];
+        var uv = format.getElement("a_TexCoord");
+        if (uv != null && (uv.format() != GpuFormat.RG16_UINT || uv.offset() < 0 || uv.offset() + 4 > stride))
+            throw new IllegalArgumentException("Unsupported Sodium terrain UV format");
+        float[] texture = uv == null ? new float[0] : new float[Math.multiplyExact(count, 2)];
         for (int i = 0; i < count; i++) {
             int offset = source.position() + i * stride + position.offset();
             int high = source.getInt(offset), low = source.getInt(offset + 4);
@@ -31,7 +35,13 @@ public final class SodiumTerrainMesh {
                 int quantized = ((high >>> shift & 1023) << 10) | (low >>> shift & 1023);
                 xyz[i * 3 + axis] = quantized * (32.0f / 1048576.0f) - 8.0f;
             }
+            if (uv != null) {
+                int uvOffset = source.position() + i * stride + uv.offset();
+                // 对应 Sodium 的 _vert_tex_diffuse_coord；不包含最高位偏移方向及 mip 收缩修正。
+                texture[i * 2] = (source.getShort(uvOffset) & 32767) / 32768.0f;
+                texture[i * 2 + 1] = (source.getShort(uvOffset + 2) & 32767) / 32768.0f;
+            }
         }
-        return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), opaque);
+        return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), texture, opaque);
     }
 }

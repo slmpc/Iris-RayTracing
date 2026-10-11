@@ -23,6 +23,8 @@ class SodiumTerrainMeshTest {
             vertices[i].y = expected[i * 3 + 1];
             vertices[i].z = expected[i * 3 + 2];
             vertices[i].ao = 1;
+            vertices[i].u = (i == 0 || i == 3) ? .25f : .75f;
+            vertices[i].v = i < 2 ? .125f : .875f;
         }
         var source = MemoryUtil.memAlloc(4 * CompactChunkVertex.STRIDE);
         TriangleMesh mesh;
@@ -33,6 +35,9 @@ class SodiumTerrainMeshTest {
         assertArrayEquals(expected, mesh.positions());
         assertArrayEquals(new int[]{0, 1, 2, 2, 3, 0}, mesh.indices());
         assertTrue(mesh.opaque());
+        float bias = 1f / 32768;
+        assertArrayEquals(new float[]{.25f+bias,.125f+bias, .75f-bias,.125f+bias,
+                .75f-bias,.875f-bias, .25f+bias,.875f-bias}, mesh.uvs());
     }
 
     @Test

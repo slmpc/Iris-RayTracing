@@ -60,7 +60,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         // 通过复制命令上传时，缓冲区大小必须按四字节对齐。
         if (size <= 0 || (size & 3) != 0) throw new IllegalArgumentException("Input size must be positive and aligned to four bytes");
         var buffer = new VulkanAccelerationStructureBuffer(this, size,
-                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         inputs.add(buffer);
         return buffer;
     }

@@ -111,7 +111,7 @@ uniform accelerationStructureEXT luminrt_Scene;
 Sodium 地形支持 `RG32_UINT` 压缩位置的 quads；原版/动态路径支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
 四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
 仅 solid 地形标记 opaque，cutout、translucent 和动态几何保留 ray query candidate。
-**当前只收集几何位置，不提供 UV、纹理、材质表或 alpha test**；候选命中是否确认由 shader 决定，
+**当前收集几何位置和 UV，UV 通过自动绑定的只读 `luminrt_SceneUV` SSBO 提供**，使用方式见 [场景 UV 接口](scene-uv.md)。尚未提供纹理标识、材质表或 alpha test；候选命中是否确认由 shader 决定，
 `gl_RayFlagsOpaqueEXT` 会把叶片透明区域等也视为几何遮挡。
 源模型的面剔除仍沿用原版编译输出，shader 顶点位移尚未反映到 AS。
 天空、云、天气、世界边界、第一人称手持物及绕过上述 CPU 顶点路径的自定义 GPU 绘制未接入。
@@ -210,7 +210,7 @@ OpenGL 测试检查后端返回 `null`。成功后写入 `build/smoke-run-*/as-s
 集成测试还验证 Sodium 的拓展开关注册、应用与配置持久化，以及实际 Mixin 注入的宏在 GLSL 预处理中的启用和关闭分支。
 这部分通过后日志输出 `LUMINRT_SETTINGS_SMOKE_PASSED`；测试在游戏资源加载完成后执行，以便使用 Sodium 的完整设置。
 
-另有 22 项单元测试，覆盖配置持久化、几何与 AS 声明约束、场景资源更新、Sodium 压缩位置解码、区段更新合并与卸载重放。
+另有 26 项单元测试，覆盖配置持久化、几何与 AS 声明约束、场景资源更新、Sodium 压缩位置及 UV 解码、UV 表布局与动态更新、区段更新合并与卸载重放。UV GPU smoke 还验证自动绑定、重心插值、表替换、缓存复用和空场景。
 已在 NVIDIA GeForce RTX 4060 Laptop GPU 上开启 Vulkan 验证层验证上述 GPU 路径，未发现 Vulkan 验证错误；
 OpenGL 空实现也已通过。无 AS 支持设备的路径尚未实机验证。
 

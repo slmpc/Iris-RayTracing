@@ -24,6 +24,75 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 final class PipelineRayQuerySmokeTest {
+    static void sceneUV() throws java.io.IOException {
+        var config = com.github.slmpc.luminrt.LuminRT.getConfig();
+        boolean enabled = config.isExtensionEnabled();
+        Object key = new Object();
+        var mesh = new com.github.slmpc.luminrt.scene.TriangleMesh(new float[]{0,0,0, 1,0,0, 0,1,0},
+                new int[]{0,1,2}, new float[]{0,0, 1,0, 0,1}, true);
+        String helper = java.nio.file.Files.readString(java.nio.file.Path.of("../../docs/examples/ray-query/shaders/lib/luminrt_scene_uv.glsl"));
+        String source = """
+            #version 460
+            #extension GL_EXT_ray_query : require
+            layout(local_size_x=1) in;
+            layout(binding=0, std430) buffer Result { uint value; };
+            uniform accelerationStructureEXT luminrt_Scene;
+            """ + helper + """
+            void main() {
+                rayQueryEXT q;
+                rayQueryInitializeEXT(q, luminrt_Scene, gl_RayFlagsOpaqueEXT, 255u,
+                    vec3(.25,.25,1), .001, vec3(0,0,-1), 10.0);
+                while (rayQueryProceedEXT(q)) {}
+                vec2 uv;
+                bool valid = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionTriangleEXT;
+                if (valid) valid = luminrtGetHitUV(rayQueryGetIntersectionInstanceCustomIndexEXT(q,true),
+                    rayQueryGetIntersectionGeometryIndexEXT(q,true), rayQueryGetIntersectionPrimitiveIndexEXT(q,true),
+                    rayQueryGetIntersectionBarycentricsEXT(q,true), uv);
+                value = valid ? uint(round(uv.x * 1000.0)) + 1000u * uint(round(uv.y * 1000.0)) : 0u;
+            }
+            """;
+        try {
+            config.setExtensionEnabled(true);
+            com.github.slmpc.luminrt.scene.WorldAccelerationStructures.reset(true);
+            com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,
+                new com.github.slmpc.luminrt.scene.TerrainGeometry(0, List.of(mesh)),
+                com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
+            com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+            var definitions = new Int2ObjectArrayMap<BuiltShaderStorageInfo>();
+            definitions.put(0, new BuiltShaderStorageInfo(16, false, 1, 1, null));
+            try (var pack = new PackSamplers(); var output = new ShaderStorageBufferHolder(definitions, 1,1)) {
+                var sources = Map.of(PatchShaderType.COMPUTE, source);
+                var resources = new ProgramResources(pack, VulkanShaderPatcher.discover(sources).layout());
+                resources.addStorageBuffers(output);
+                resources.finish();
+                var patched = VulkanShaderPatcher.patch(sources, resources.getBindingPlan());
+                var pipeline = Iris.getRenderBackend().createComputePipeline("luminrt_uv_smoke", patched, resources, new BufferUniformHolder(patched.layout()));
+                try {
+                    dispatch(pipeline);
+                    require(read(output.getBuffer(0).buffer()) == 250250, "Automatic scene UV binding must interpolate (.25,.25)");
+                    var changed = new com.github.slmpc.luminrt.scene.TriangleMesh(mesh.positions(), mesh.indices(), new float[]{.5f,0, 1,0, .5f,1}, true);
+                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,
+                        new com.github.slmpc.luminrt.scene.TerrainGeometry(0,List.of(changed)),
+                        com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
+                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+                    dispatch(pipeline);
+                    require(read(output.getBuffer(0).buffer()) == 250625, "UV replacement must invalidate descriptor reuse");
+                    dispatch(pipeline);
+                    require(read(output.getBuffer(0).buffer()) == 250625, "Cached UV descriptors must preserve values");
+                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,null,
+                        com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
+                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+                    dispatch(pipeline);
+                    require(read(output.getBuffer(0).buffer()) == 0, "Empty scene UV table must remain valid");
+                    com.github.slmpc.luminrt.LuminRT.LOGGER.info("LUMINRT_UV_SMOKE_PASSED");
+                } finally { Iris.getRenderBackend().retire(pipeline::close); }
+            }
+        } finally {
+            com.github.slmpc.luminrt.scene.WorldAccelerationStructures.reset(true);
+            config.setExtensionEnabled(enabled);
+        }
+    }
+
     private static final String RAY = """
         rayQueryEXT q;
         rayQueryInitializeEXT(q, scene, gl_RayFlagsOpaqueEXT, 255,

@@ -29,6 +29,7 @@ public final class AccelerationStructureSmokeTest implements ClientModInitialize
                 RayTracingSettingsSmokeTest.run();
                 SodiumTerrainSmokeTest.run();
                 run();
+                if (!"OPENGL".equals(System.getProperty("luminrt.smokeBackend"))) PipelineRayQuerySmokeTest.sceneUV();
                 java.nio.file.Files.writeString(java.nio.file.Path.of("as-smoke-passed.txt"), "AS smoke passed\n");
                 LuminRT.LOGGER.info("LUMINRT_AS_SMOKE_PASSED");
             } catch (Exception | AssertionError failure) {

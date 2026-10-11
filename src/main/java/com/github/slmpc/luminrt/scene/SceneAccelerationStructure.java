@@ -13,6 +13,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     private final List<MeshResource> retired = new ArrayList<>();
     private AccelerationStructure tlas;
     private AccelerationStructureBuffer instances;
+    private AccelerationStructureBuffer uvData;
+    private boolean uvDirty = true;
     private int instanceCount = -1;
     private boolean dirty = true;
     private boolean structural = true;
@@ -34,12 +36,16 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         var previous = meshes.get(key);
         dirty = true;
         if (dynamic && previous != null && previous.dynamic && previous.sameTopology(geometry)) {
+            // 仅位置或实例原点改变时复用 UV 表，避免每帧重传整个地形的 UV。
+            for (int i = 0; i < geometry.size(); i++)
+                uvDirty |= !previous.geometry.get(i).sameUVs(geometry.get(i));
             previous.upload(geometry, false);
             backend.update(previous.blas);
             previous.x = x; previous.y = y; previous.z = z;
             blasUpdates++;
         } else {
             var next = new MeshResource(geometry, x, y, z, dynamic);
+            uvDirty = true;
             meshes.put(key, next);
             if (previous != null) retired.add(previous);
             blasBuilds++;
@@ -49,7 +55,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
     public void remove(Object key) {
         var old = meshes.remove(key);
-        if (old != null) { retired.add(old); dirty = structural = true; }
+        if (old != null) { retired.add(old); dirty = structural = uvDirty = true; }
     }
 
     public AccelerationStructure build(double x, double y, double z) {
@@ -61,7 +67,17 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         AccelerationStructure nextTlas = tlas;
         AccelerationStructureBuffer nextInstances = instances;
         boolean replace = tlas == null || instanceCount != count;
+        AccelerationStructureBuffer nextUV = uvData;
         try {
+            if (uvDirty) {
+                var geometry = meshes.values().stream().map(resource -> resource.geometry).toList();
+                var packed = MemoryUtil.memCalloc(SceneUVData.byteSize(geometry)).order(ByteOrder.nativeOrder());
+                try {
+                    SceneUVData.write(packed, geometry); packed.flip();
+                    nextUV = backend.createInputBuffer(packed.remaining());
+                    nextUV.upload(0, packed);
+                } finally { MemoryUtil.memFree(packed); }
+            }
             int index = 0;
             for (var resource : meshes.values()) {
                 int offset = index * 64;
@@ -83,6 +99,11 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             if (!replace && !structural && count != 0) { backend.update(nextTlas); tlasUpdates++; }
             else { backend.build(nextTlas); tlasBuilds++; }
             nextTlas.setReferencedStructures(meshes.values().stream().map(resource -> resource.blas).toList());
+            if (uvDirty) {
+                if (uvData != null) uvData.close();
+                uvData = nextUV;
+                uvDirty = false;
+            }
             if (replace) {
                 if (tlas != null) tlas.close();
                 if (instances != null) instances.close();
@@ -95,6 +116,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             dirty = structural = false;
             return tlas;
         } catch (RuntimeException | Error failure) {
+            if (nextUV != null && nextUV != uvData) nextUV.close();
             if (replace) {
                 if (nextTlas != null && nextTlas != tlas) nextTlas.close();
                 if (nextInstances != null && nextInstances != instances) nextInstances.close();
@@ -103,18 +125,25 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         } finally { MemoryUtil.memFree(data); }
     }
 
+    public AccelerationStructureBuffer uvBuffer() {
+        if (uvData == null || uvData.isClosed()) throw new IllegalStateException("Scene must be built before accessing UV data");
+        return uvData;
+    }
+
     @Override public void close() {
         if (tlas != null) tlas.close();
         if (instances != null) instances.close();
+        if (uvData != null) uvData.close();
         meshes.values().forEach(MeshResource::close);
         retired.forEach(MeshResource::close);
         meshes.clear(); retired.clear();
-        tlas = null; instances = null; instanceCount = -1; dirty = structural = true;
+        tlas = null; instances = uvData = null; instanceCount = -1; dirty = structural = uvDirty = true;
     }
 
     private final class MeshResource implements AutoCloseable {
         private final List<AccelerationStructureBuffer> vertices = new ArrayList<>(), indices = new ArrayList<>();
         private final List<TriangleMesh> topology;
+        private List<TriangleMesh> geometry;
         private final boolean dynamic;
         private AccelerationStructure blas;
         private double x, y, z;
@@ -154,6 +183,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                     finally { MemoryUtil.memFree(data); }
                 }
             }
+            this.geometry = geometry;
         }
 
         @Override public void close() {

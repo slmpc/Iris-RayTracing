@@ -16,6 +16,8 @@ import static com.github.slmpc.luminrt.vulkan.VulkanAccelerationStructureFeature
 
 /** 使用缓冲区设备地址内存标志分配的仅供 GPU 使用的存储、构建输入或临时缓冲区。 */
 final class VulkanAccelerationStructureBuffer implements AccelerationStructureBuffer {
+    // 当前 Iris Vulkan 用此扩展 usage 位表示存储缓冲区，桥接时检查该位。
+    private static final int IRIS_STORAGE_BUFFER_USAGE = 1 << 20;
     final VulkanAccelerationStructureBackend owner;
     final long handle;
     private final long allocation;
@@ -60,6 +62,21 @@ final class VulkanAccelerationStructureBuffer implements AccelerationStructureBu
 
     @Override
     public boolean isClosed() { return closed; }
+
+    @Override
+    public com.mojang.renderpearl.api.buffers.GpuBufferSlice shaderSlice() {
+        deviceAddress();
+        // Iris 的切片桥接要求 VulkanGpuBuffer；此视图不拥有底层 VMA 分配。
+        var view = new VulkanGpuBuffer(handle, IRIS_STORAGE_BUFFER_USAGE, size) {
+            @Override public boolean isClosed() { return closed; }
+            @Override public void close() { throw new UnsupportedOperationException("Borrowed scene storage view"); }
+            @Override public void destroy() { throw new UnsupportedOperationException("Borrowed scene storage view"); }
+            @Override public com.mojang.renderpearl.api.buffers.GpuBufferSlice.MappedView map(long offset, long length, boolean read, boolean write) {
+                throw new UnsupportedOperationException("Scene storage is GPU-only");
+            }
+        };
+        return view.slice();
+    }
 
     @Override
     public void upload(long offset, ByteBuffer data) {

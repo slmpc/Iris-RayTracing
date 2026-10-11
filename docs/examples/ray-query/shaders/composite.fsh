@@ -3,6 +3,7 @@
 #ifdef ENABLED_LUMIN_RAY_TRACING_EXTENSION
 #extension GL_EXT_ray_query : require
 #include "/lib/luminrt_ray_query.glsl"
+#include "/lib/luminrt_scene_uv.glsl"
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform float far;
@@ -23,7 +24,10 @@ void main() {
     if (hit.found) {
         vec3 bary = vec3(1.0 - hit.barycentrics.x - hit.barycentrics.y, hit.barycentrics);
         float distanceFade = 1.0 / (1.0 + 0.02 * hit.t);
-        outColor = vec4(bary * distanceFade, 1.0);
+        vec2 uv;
+        bool hasUV = luminrtGetHitUV(hit.instanceIndex, hit.geometryIndex,
+            hit.primitiveIndex, hit.barycentrics, uv);
+        outColor = vec4((hasUV ? vec3(fract(uv), 0.25) : bary) * distanceFade, 1.0);
     } else {
         outColor = vec4(0.03, 0.06, 0.12, 1.0);
     }
