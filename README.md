@@ -51,5 +51,16 @@ Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 
 
 ## 许可证
 
-本项目原创内容暂为 **All Rights Reserved（保留所有权利）**，详见 `LICENSE`。
-第三方依赖（包括 Iris 的 LGPL-3.0-only）及 Gradle Wrapper 保留各自许可证。
+Copyright (c) 2026 slmpc。
+
+本项目以 **GNU GPL 第 3 版（GPL-3.0-only）** 开源，完整条款见 [LICENSE](LICENSE)。你可以依据该许可证使用、修改和再分发本项目；本项目不提供任何担保。
+
+地形与动态顶点加速结构的实现参考了 [prime / Prime PT](https://github.com/bWFuanVzYWth/prime) 的资源管理思路。prime 的版权归 linlin 及其贡献者所有，其原创代码采用 GPL-3.0-only，并附有单独的链接例外；详见 [第三方许可与来源声明](THIRD_PARTY_NOTICES.md)。
+
+第三方依赖（包括 Iris 的 LGPL-3.0-only）及 Gradle Wrapper 保留各自许可证。本项目的许可证不替代第三方条款。
+
+## AI / LLM 代码披露与合规声明
+
+请注意，本代码库包含由大型语言模型（LLM）生成或辅助编写的软件组件。如果你的个人政策、监管要求或使用标准禁止部署或运行 AI 生成的软件，请立即停止使用 IrisRT，并从你的系统中移除所有 IrisRT 副本。
+
+本声明用于披露 AI / LLM 的参与，不对 GPL-3.0-only 授予的权利附加限制。

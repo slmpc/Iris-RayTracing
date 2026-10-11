@@ -86,4 +86,7 @@ tasks.jar {
     from("LICENSE") {
         rename { "LICENSE_irisrt" }
     }
+    from(listOf("THIRD_PARTY_NOTICES.md", "AI_DISCLOSURE.md")) {
+        into("META-INF")
+    }
 }

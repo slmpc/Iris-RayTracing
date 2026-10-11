@@ -5,7 +5,11 @@
   "name": "IrisRT",
   "description": "A client-side Fabric mod built on Iris for Minecraft 26.3.",
   "authors": ["slmpc"],
-  "license": "All Rights Reserved",
+  "license": "GPL-3.0-only",
+  "contact": {
+    "sources": "https://github.com/slmpc/Iris-RayTracing",
+    "issues": "https://github.com/slmpc/Iris-RayTracing/issues"
+  },
   "environment": "client",
   "mixins": ["irisrt.mixins.json"],
   "entrypoints": {
