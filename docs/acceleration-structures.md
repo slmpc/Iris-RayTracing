@@ -81,11 +81,16 @@ uniform accelerationStructureEXT luminrt_Scene;
 从相机发射的射线起点为 `vec3(0.0)`；世界位置先减去本帧相机位置。
 实例平移先在 CPU 用 double 相减，再转为 float，避免直接把远距离世界坐标写入 BLAS。
 
-- 地形：在当前 Minecraft 26.3 的 `SectionCompiler.compile` 返回时复制各层真实 CPU 顶点。
-  快照随 `CompiledSectionMesh` 保存，在 `RenderSection.setSectionMesh` 正式发布后才进入场景。
+- 地形：Iris Vulkan 使用 Sodium 0.9.2，实际编译路径绕过原版 `SectionCompiler`。
+  在 `ChunkBuildBuffers.createMesh` / `createModifiedTranslucentMesh` 保存当次格式，
+  在 `RenderRegionManager.uploadResults` 正式上传后、结果销毁前复制各层网格，
+  解码 `a_Position` 的 20 位区段局部坐标，支持 Sodium Compact 与 Iris XHFP 扩展步长。
+  不发布取消、过期或未被上传的构建结果；纯 `ChunkSortOutput` 不替换快照。
+  原版采集入口仍在 `SectionCompiler.compile` 复制 `MeshData`，并随 `CompiledSectionMesh` 发布。
   每个区段一个 BLAS，solid/cutout/translucent 各为独立 geometry；未变化的区段不重新上传或构建。
   区段重编译替换 BLAS；透明排序仅修改光栅索引，不触发 AS 重建。
-  `reset`、区段复用和世界重置删除旧实例，编译时坐标及世界 epoch 防止旧结果进入新的区段或世界。
+  Sodium 的 `RenderSection.delete` 删除旧快照与实例；世界重置清空注册。
+  开启拓展时主动请求区段重编译，即使 Iris 的格式未变化，也能补齐此前已加载的区段。
 - 动态顶点：仅在主世界 `FeatureRenderDispatcher.prepareFrame` 期间采集
   `StagedVertexBuffer.Draw.append` 的真实 `MeshData`，包括走此路径的实体、方块实体、移动方块及粒子。
   采集后、创建主渲染通道前构建本帧动态 BLAS 和 TLAS。
@@ -103,7 +108,7 @@ uniform accelerationStructureEXT luminrt_Scene;
 没有移植其 Rust 场景编译器、压缩、材质系统或完成槽上传机制。
 所有 AS 命令沿用 LuminRT 图形队列的同步与延迟销毁，不增加 CPU fence 等待或独立队列。
 
-当前支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
+Sodium 地形支持 `RG32_UINT` 压缩位置的 quads；原版/动态路径支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
 四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
 仅 solid 地形标记 opaque，cutout、translucent 和动态几何保留 ray query candidate。
 **当前只收集几何位置，不提供 UV、纹理、材质表或 alpha test**；候选命中是否确认由 shader 决定，
@@ -116,12 +121,14 @@ uniform accelerationStructureEXT luminrt_Scene;
 相机移动时目前仍全量重写 TLAS 实例，输入上传及逐 BLAS 构建沿用保守屏障，
 未实现 prime-pt 的批量 scratch、局部实例上传、BLAS compaction 或构建预算。
 可通过 `WorldAccelerationStructures.statistics()` 查看驻留网格及 BLAS/TLAS build/update 次数；
+通过 `WorldAccelerationStructures.terrainSectionCount()` 查看 Sodium 地形快照数量（不含动态实例）。
 未做实际游戏帧率或显存测量，不声称达到 prime-pt 的性能。
 
 新增无窗口测试覆盖三角化绕序、源内存释放后的快照有效性、动态 refit、拓扑变化重建、
 大坐标相机相对变换、静态 BLAS 复用、空场景、删除及分配/构建失败后的重试。
-按需 GPU smoke 也加入场景空 TLAS、refit、替换和删除路径；**本次仅编译该测试，未启动游戏执行**。
-实际 Mixin 注入、世界采集及 GPU ray query 命中效果仍需游戏验收。
+2026-10-11 已运行 Vulkan GPU smoke，默认与 Iris 扩展格式的实际合并网格、源码内存销毁后的快照，
+以及场景空 TLAS、refit、替换和删除路径均通过。
+该 smoke 不加载世界；真实区段采集、卸载及 Nsight 全场景结果仍需在世界中验收。
 
 手动验证时使用 Vulkan 启动并开启拓展，加载声明 `luminrt_Scene` 的光影包，
 检查放置/破坏方块、区段卸载与复用、实体移动、远坐标移动、切换维度、关闭拓展及重载光影。
@@ -203,7 +210,7 @@ OpenGL 测试检查后端返回 `null`。成功后写入 `build/smoke-run-*/as-s
 集成测试还验证 Sodium 的拓展开关注册、应用与配置持久化，以及实际 Mixin 注入的宏在 GLSL 预处理中的启用和关闭分支。
 这部分通过后日志输出 `LUMINRT_SETTINGS_SMOKE_PASSED`；测试在游戏资源加载完成后执行，以便使用 Sodium 的完整设置。
 
-另有 10 项单元测试，覆盖配置默认值和持久化、几何数据约束及 AS 声明的阶段合并、binding 分配和冲突处理。
+另有 22 项单元测试，覆盖配置持久化、几何与 AS 声明约束、场景资源更新、Sodium 压缩位置解码、区段更新合并与卸载重放。
 已在 NVIDIA GeForce RTX 4060 Laptop GPU 上开启 Vulkan 验证层验证上述 GPU 路径，未发现 Vulkan 验证错误；
 OpenGL 空实现也已通过。无 AS 支持设备的路径尚未实机验证。
 

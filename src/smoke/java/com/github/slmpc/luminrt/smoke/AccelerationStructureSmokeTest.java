@@ -27,6 +27,7 @@ public final class AccelerationStructureSmokeTest implements ClientModInitialize
             ran = true;
             try {
                 RayTracingSettingsSmokeTest.run();
+                SodiumTerrainSmokeTest.run();
                 run();
                 java.nio.file.Files.writeString(java.nio.file.Path.of("as-smoke-passed.txt"), "AS smoke passed\n");
                 LuminRT.LOGGER.info("LUMINRT_AS_SMOKE_PASSED");

@@ -45,6 +45,7 @@ Sodium 视频设置中的 **LuminRT → 设置** 提供拓展开关，默认关�
 Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 下。
 
 开启拓展后自动收集地形及主世界 staged vertex 路径中的实体、方块实体、移动方块和粒子顶点，
+地形接入 Sodium 0.9.2 的实际区段上传路径，兼容默认压缩格式及 Iris 扩展格式。
 维护区段 BLAS、动态 BLAS 与相机相对 TLAS。光影声明 `uniform accelerationStructureEXT luminrt_Scene;`
 即可自动绑定场景；动态拓扑不变时 refit，区段和拓扑变化时重建，卸载与重载会释放旧资源。
 当前仅提供几何，尚无材质/UV/alpha test 数据，也不包含 shader 顶点位移。

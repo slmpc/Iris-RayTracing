@@ -42,6 +42,10 @@ public final class LuminRTSodiumConfig implements ConfigEntryPoint {
         // Sodium 先保存所有配置，再执行应用回调，使重新加载的光影包使用已提交的开关状态。
         try {
             Iris.reload();
+            // 开关变化不一定改变 Iris 的顶点格式；主动重编译已加载区段以补齐地形快照。
+            var minecraft = Minecraft.getInstance();
+            if (LuminRT.getConfig().isExtensionEnabled() && minecraft.level != null)
+                minecraft.levelExtractor.allChanged();
         } catch (IOException e) {
             LuminRT.LOGGER.error("Failed to reload shaders after applying LuminRT settings", e);
             var player = Minecraft.getInstance().player;

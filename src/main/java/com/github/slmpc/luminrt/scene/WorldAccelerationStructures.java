@@ -21,6 +21,7 @@ public final class WorldAccelerationStructures {
     private static final AtomicLong EPOCH = new AtomicLong();
     private static final Object REGISTRY_LOCK = new Object();
     private static final Set<RenderSection> DIRTY = ConcurrentHashMap.newKeySet();
+    private static final TerrainGeometryRegistry TERRAIN = new TerrainGeometryRegistry();
     private static final Map<RenderSection, SectionMesh> RESIDENT = new ConcurrentHashMap<>();
     private static final Map<RenderSection, SectionMesh> UPLOADED = new IdentityHashMap<>();
     private static final List<TriangleMesh> DYNAMIC_MESHES = new ArrayList<>();
@@ -34,6 +35,11 @@ public final class WorldAccelerationStructures {
 
     public static long epoch() { return EPOCH.get(); }
     public static boolean collectsTerrain() { return LuminRT.getConfig().isExtensionEnabled(); }
+
+    /** 在 Sodium 完成区段网格上传后接收稳定的 CPU 几何快照。 */
+    public static void terrainChanged(Object key, TerrainGeometry geometry, long epoch) {
+        TERRAIN.publish(key, geometry, epoch);
+    }
 
     public static void sectionChanged(RenderSection section, long epoch) {
         synchronized (REGISTRY_LOCK) {
@@ -91,6 +97,9 @@ public final class WorldAccelerationStructures {
         return scene == null ? new SceneAccelerationStructure.Statistics(0, 0, 0, 0, 0) : scene.statistics();
     }
 
+    /** 已确认上传且保存 CPU 快照的 Sodium 区段数量，不包含动态实例。 */
+    public static int terrainSectionCount() { return TERRAIN.size(); }
+
     private static boolean ensureScene() {
         if (!LuminRT.getConfig().isExtensionEnabled()) {
             reset(false);
@@ -99,12 +108,22 @@ public final class WorldAccelerationStructures {
         var backend = AccelerationStructureBackendProvider.get(Iris.getRenderBackend());
         if (backend == null || !backend.isSupported()) { reset(false); return false; }
         if (owner != backend) { reset(false); owner = backend; }
-        if (scene == null) { scene = new SceneAccelerationStructure(backend); DIRTY.addAll(RESIDENT.keySet()); }
+        if (scene == null) { scene = new SceneAccelerationStructure(backend); TERRAIN.replay(); DIRTY.addAll(RESIDENT.keySet()); }
         collectTerrain = true;
         return true;
     }
 
     private static void flushTerrain() {
+        for (var change : TERRAIN.drain()) {
+            if (change.geometry() == null) scene.remove(change.key());
+            else {
+                var node = change.geometry().sectionNode();
+                scene.put(change.key(), change.geometry().meshes(),
+                        SectionPos.sectionToBlockCoord(SectionPos.x(node)),
+                        SectionPos.sectionToBlockCoord(SectionPos.y(node)),
+                        SectionPos.sectionToBlockCoord(SectionPos.z(node)), false);
+            }
+        }
         for (var section : DIRTY.toArray(RenderSection[]::new)) {
             // 先取走事件，随后发生的发布会留下新事件，下一次刷新仍能看到它。
             if (!DIRTY.remove(section)) continue;
@@ -129,8 +148,8 @@ public final class WorldAccelerationStructures {
         if (scene != null) scene.close();
         scene = null; owner = null; UPLOADED.clear();
         if (worldChanged) {
-            synchronized (REGISTRY_LOCK) { EPOCH.incrementAndGet(); RESIDENT.clear(); DIRTY.clear(); }
+            synchronized (REGISTRY_LOCK) { EPOCH.incrementAndGet(); RESIDENT.clear(); DIRTY.clear(); TERRAIN.clearWorld(); }
             camera = Vec3.ZERO;
-        } else DIRTY.clear();
+        } else { DIRTY.clear(); TERRAIN.clearPending(); }
     }
 }

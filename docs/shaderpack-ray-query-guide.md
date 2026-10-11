@@ -59,11 +59,11 @@ CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 
 
 ## 3. 当前几何内容和缺失内容
 
-地形在 Minecraft 26.3 `SectionCompiler.compile` 生成 `MeshData` 后复制顶点位置，并随 `CompiledSectionMesh` 发布。每个区段的 solid、cutout、translucent 几何进入相应 BLAS geometry。区段重编译会替换 BLAS；透明排序只影响光栅索引，不会把排序结果误当作 AS 拓扑。
+当前 Iris Vulkan 使用 Sodium 0.9.2 的地形路径，绕过原版 `SectionCompiler`。LuminRT 在 `ChunkBuildBuffers` 生成合并网格时保存实际顶点格式，在 `RenderRegionManager.uploadResults` 正式上传后、临时内存销毁前复制并解码 `a_Position` 的 20 位压缩位置；兼容默认 Compact 与 Iris XHFP 的不同步长。每个区段的 solid、cutout、translucent 几何进入同一区段 BLAS 的不同 geometry。区段重编译替换 BLAS，删除区段移除实例；纯透明排序输出不重建 AS。原版 `SectionCompiler` 路径作为另一个采集入口保留。
 
 动态几何在 `FeatureRenderDispatcher.prepareFrame` 的 `StagedVertexBuffer.Draw.append` 路径复制真实 `MeshData`，覆盖经过该 staged 路径的实体、方块实体、移动方块和粒子。动态 geometry 的顶点数、索引和 opaque 标记不变时使用 BLAS update；拓扑变化时重建。
 
-当前顶点采集只接受 `Position` 为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。四边形固定三角化为 `0,1,2` 与 `2,3,0`。AS 中没有：
+Sodium 地形使用 `a_Position` 为 `RG32_UINT` 的压缩 quads；原版/动态顶点采集接受 `Position` 为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。四边形固定三角化为 `0,1,2` 与 `2,3,0`。AS 中没有：
 
 - UV、法线、切线、顶点颜色和光照值；
 - block/entity/material ID 的 shader 可读表；
