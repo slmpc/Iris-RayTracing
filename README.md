@@ -43,6 +43,11 @@ Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 
 即可自动绑定场景；动态拓扑不变时 refit，区段和拓扑变化时重建，卸载与重载会释放旧资源。
 当前仅提供几何，尚无材质/UV/alpha test 数据，也不包含 shader 顶点位移。
 
+## 光影包适配
+
+完整的资源声明、坐标与几何约定，以及 ray tracing pipeline 到 ray query 的迁移方法，见 [光影包适配指南](docs/shaderpack-ray-query-guide.md)。
+可合入现有光影包的 [几何诊断示例](docs/examples/ray-query/README.md) 提供最近命中和遮挡查询。
+
 ## 许可证
 
 本项目原创内容暂为 **All Rights Reserved（保留所有权利）**，详见 `LICENSE`。

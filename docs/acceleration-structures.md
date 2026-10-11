@@ -206,3 +206,7 @@ OpenGL 测试检查后端返回 `null`。成功后写入 `build/smoke-run-*/as-s
 另有 10 项单元测试，覆盖配置默认值和持久化、几何数据约束及 AS 声明的阶段合并、binding 分配和冲突处理。
 已在 NVIDIA GeForce RTX 4060 Laptop GPU 上开启 Vulkan 验证层验证上述 GPU 路径，未发现 Vulkan 验证错误；
 OpenGL 空实现也已通过。无 AS 支持设备的路径尚未实机验证。
+
+## 光影包迁移
+
+shader 侧的完整适配、材质数据契约、SBT/递归替代方案和多次反弹说明见 [光影包与 ray query 指南](shaderpack-ray-query-guide.md)。
