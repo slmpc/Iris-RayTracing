@@ -25,6 +25,7 @@ public final class WorldAccelerationStructures {
     private static final Map<RenderSection, SectionMesh> RESIDENT = new ConcurrentHashMap<>();
     private static final Map<RenderSection, SectionMesh> UPLOADED = new IdentityHashMap<>();
     private static final List<TriangleMesh> DYNAMIC_MESHES = new ArrayList<>();
+    private static final LinkedHashMap<Object, TerrainGeometryRegistry.Change> PENDING_TERRAIN = new LinkedHashMap<>();
     private static SceneAccelerationStructure scene;
     private static AccelerationStructureBackend owner;
     private static Vec3 camera = Vec3.ZERO;
@@ -120,12 +121,12 @@ public final class WorldAccelerationStructures {
         if (!LuminRT.getConfig().isSceneProfilingEnabled() || ++profiledFrames % 120 != 0) return;
         var stats = scene.statistics();
         LuminRT.LOGGER.info(
-                "LuminRT scene: meshes={} blas={}/{} tlas={}/{} anchorGen={} rebase={} "
+                "LuminRT scene: meshes={} blas={}/{} tlas={}/{} anchorGen={} rebase={} pending={} "
                         + "bytes(in={},dir={},rec={}) arena={}/{} batches={} uploads={}",
                 stats.meshes(), stats.blasBuilds(), stats.blasUpdates(), stats.tlasBuilds(), stats.tlasUpdates(),
-                scene.anchorGeneration(), stats.anchorRebases(), stats.instanceBytes(), stats.directoryBytes(),
-                stats.recordBytes(), stats.arenaResident(), stats.arenaCapacity(),
-                stats.uploadBatches(), stats.uploadCount());
+                scene.anchorGeneration(), stats.anchorRebases(), PENDING_TERRAIN.size(),
+                stats.instanceBytes(), stats.directoryBytes(), stats.recordBytes(),
+                stats.arenaResident(), stats.arenaCapacity(), stats.uploadBatches(), stats.uploadCount());
     }
 
     private static boolean ensureScene() {
@@ -141,38 +142,51 @@ public final class WorldAccelerationStructures {
         return true;
     }
 
+    /** 每帧只处理有预算的 section 更新；其余留在队列，避免加载/飞行时一次性重建全部区段。 */
     private static void flushTerrain() {
-        for (var change : TERRAIN.drain()) {
-            if (change.geometry() == null) scene.remove(change.key());
-            else {
-                var node = change.geometry().sectionNode();
-                scene.put(change.key(), change.geometry().meshes(),
-                        SectionPos.sectionToBlockCoord(SectionPos.x(node)),
-                        SectionPos.sectionToBlockCoord(SectionPos.y(node)),
-                        SectionPos.sectionToBlockCoord(SectionPos.z(node)), false);
-            }
+        int budget = LuminRT.getConfig().getSceneSectionBudget();
+        for (var change : TERRAIN.drain()) PENDING_TERRAIN.put(change.key(), change);
+        int processed = 0;
+        while (processed < budget && !PENDING_TERRAIN.isEmpty()) {
+            var iterator = PENDING_TERRAIN.entrySet().iterator();
+            applyTerrain(iterator.next().getValue());
+            iterator.remove();
+            processed++;
         }
         for (var section : DIRTY.toArray(RenderSection[]::new)) {
+            if (processed >= budget) break;
             // 先取走事件，随后发生的发布会留下新事件，下一次刷新仍能看到它。
             if (!DIRTY.remove(section)) continue;
             var mesh = section.getSectionMesh();
             var data = mesh instanceof TerrainGeometryAccess access ? access.luminrt$getTerrainGeometry() : null;
             if (data == null || data.sectionNode() != section.getSectionNode()) {
                 scene.remove(section); UPLOADED.remove(section);
-                continue;
+                processed++;
+            } else if (UPLOADED.get(section) != mesh) {
+                long node = data.sectionNode();
+                scene.put(section, data.meshes(), SectionPos.sectionToBlockCoord(SectionPos.x(node)),
+                        SectionPos.sectionToBlockCoord(SectionPos.y(node)),
+                        SectionPos.sectionToBlockCoord(SectionPos.z(node)), false);
+                UPLOADED.put(section, mesh);
+                processed++;
             }
-            if (UPLOADED.get(section) == mesh) continue;
-            long node = data.sectionNode();
-            scene.put(section, data.meshes(), SectionPos.sectionToBlockCoord(SectionPos.x(node)),
-                    SectionPos.sectionToBlockCoord(SectionPos.y(node)), SectionPos.sectionToBlockCoord(SectionPos.z(node)), false);
-            UPLOADED.put(section, mesh);
         }
+    }
+
+    private static void applyTerrain(TerrainGeometryRegistry.Change change) {
+        if (change.geometry() == null) { scene.remove(change.key()); return; }
+        var node = change.geometry().sectionNode();
+        scene.put(change.key(), change.geometry().meshes(),
+                SectionPos.sectionToBlockCoord(SectionPos.x(node)),
+                SectionPos.sectionToBlockCoord(SectionPos.y(node)),
+                SectionPos.sectionToBlockCoord(SectionPos.z(node)), false);
     }
 
     public static void reset(boolean worldChanged) {
         RenderSystem.assertOnRenderThread();
         collectTerrain = captureDynamic = false;
         DYNAMIC_MESHES.clear();
+        PENDING_TERRAIN.clear();
         if (scene != null) scene.close();
         scene = null; owner = null; UPLOADED.clear();
         if (worldChanged) {

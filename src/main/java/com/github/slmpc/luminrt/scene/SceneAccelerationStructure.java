@@ -35,6 +35,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     private final List<MeshResource> retired = new ArrayList<>();
     private final SceneGeometryArena records;
     private final List<int[]> pendingRecordFrees = new ArrayList<>();
+    private final List<AccelerationStructureBackend.Build> pendingBuilds = new ArrayList<>();
     private final int initialIndexRecords;
     private AccelerationStructureBuffer quadIndices;
     private AccelerationStructureBuffer triangleIndices;
@@ -101,7 +102,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                 changed |= !previous.geometry.get(i).sameContent(geometry.get(i));
             previous.geometry = geometry;
             if (changed) previous.packRecords();
-            backend.update(previous.blas);
+            requestBuild(previous.blas, true);
             previous.x = x; previous.y = y; previous.z = z;
             blasUpdates++;
         } else {
@@ -132,6 +133,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             dirty = true;
         }
         if (!dirty) return tlas;
+        // BLAS 构建/更新先于 TLAS；失败时保留队列，下一次构建重试。
+        flushBuilds();
         int count = meshes.size();
         if (count > 0x1000000) throw new IllegalStateException("Instance custom index exceeds 24 bits");
         var data = MemoryUtil.memCalloc(Math.multiplyExact(Math.max(1, count), 64)).order(ByteOrder.nativeOrder());
@@ -282,8 +285,19 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         for (var resource : meshes.values()) resource.rebuildBlas();
     }
 
-    private void retireRecords(MeshResource resource) {
-        for (int i = 0; i < resource.recordOffsets.size(); i++) {
+    private void requestBuild(AccelerationStructure structure, boolean update) {
+        pendingBuilds.add(new AccelerationStructureBackend.Build(structure, update));
+    }
+
+    /** 一次提交本帧累积的 BLAS 构建/更新；失败时保留队列供下一次构建重试。 */
+    private void flushBuilds() {
+        if (pendingBuilds.isEmpty()) return;
+        var builds = List.copyOf(pendingBuilds);
+        backend.buildBatch(builds);
+        pendingBuilds.clear();
+    }
+
+    private void retireRecords(MeshResource resource) {        for (int i = 0; i < resource.recordOffsets.size(); i++) {
             int offset = resource.recordOffsets.get(i);
             if (offset >= 0) pendingRecordFrees.add(new int[]{
                     offset, resource.recordSizes.get(i), resource.recordGenerations.get(i)});
@@ -292,6 +306,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     }
 
     @Override public void close() {
+        pendingBuilds.clear();
         if (tlas != null) tlas.close();
         if (instances != null) instances.close();
         if (directory != null) directory.close();
@@ -419,7 +434,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             }
             blas = backend.create(new AccelerationStructureDescription(AccelerationStructure.Type.BOTTOM_LEVEL,
                     descriptions, dynamic, !dynamic));
-            backend.build(blas);
+            requestBuild(blas, false);
             blasBuilds++;
         }
 

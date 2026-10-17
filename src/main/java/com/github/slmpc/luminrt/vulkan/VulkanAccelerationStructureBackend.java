@@ -9,6 +9,7 @@ import net.irisshaders.iris.vulkan.VulkanCommandBridge;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
@@ -103,10 +104,90 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     }
 
     @Override
-    public void build(AccelerationStructure structure) { record(structure, false); }
+    public void build(AccelerationStructure structure) {
+        buildBatch(List.of(new AccelerationStructureBackend.Build(structure, false)));
+    }
 
     @Override
-    public void update(AccelerationStructure structure) { record(structure, true); }
+    public void update(AccelerationStructure structure) {
+        buildBatch(List.of(new AccelerationStructureBackend.Build(structure, true)));
+    }
+
+    @Override
+    public void buildBatch(List<AccelerationStructureBackend.Build> builds) {
+        requireSupport();
+        if (builds.isEmpty()) return;
+        long scratchTotal = 0;
+        for (var build : builds) {
+            var structure = structure(build.structure());
+            if (build.update() && (!structure.built || !structure.description.allowUpdate())) {
+                throw new IllegalStateException("Update requires a prior build with allowUpdate");
+            }
+            long size = build.update() ? structure.updateScratchSize : structure.buildScratchSize;
+            scratchTotal = Math.addExact(scratchTotal, align(size));
+        }
+        // 在分配临时资源前，拒绝渲染通道内的操作。
+        var command = VulkanCommandBridge.commandBuffer(device.createCommandEncoder());
+        long allocationSize = Math.addExact(Math.max(1, scratchTotal), scratchAlignment - 1);
+        try (var scratch = new VulkanAccelerationStructureBuffer(this, allocationSize,
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+             var stack = MemoryStack.stackPush()) {
+            long scratchBase = align(scratch.deviceAddress());
+            var infos = VkAccelerationStructureBuildGeometryInfoKHR.calloc(builds.size());
+            var geometries = new ArrayList<VkAccelerationStructureGeometryKHR.Buffer>(builds.size());
+            var ranges = new ArrayList<VkAccelerationStructureBuildRangeInfoKHR.Buffer>(builds.size());
+            var rangePointers = stack.mallocPointer(builds.size());
+            try {
+                long offset = scratchBase;
+                for (int i = 0; i < builds.size(); i++) {
+                    var build = builds.get(i);
+                    var structure = structure(build.structure());
+                    long size = build.update() ? structure.updateScratchSize : structure.buildScratchSize;
+                    var geometry = geometries(structure.description);
+                    var range = VkAccelerationStructureBuildRangeInfoKHR.calloc(
+                            structure.description.geometries().size());
+                    for (int j = 0; j < range.capacity(); j++) {
+                        range.get(j).primitiveCount(structure.description.geometries().get(j).primitiveCount());
+                    }
+                    geometries.add(geometry);
+                    ranges.add(range);
+                    var info = infos.get(i).sType$Default()
+                            .type(nativeType(structure.type())).flags(flags(structure.description))
+                            .mode(build.update() ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+                                                 : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR)
+                            .srcAccelerationStructure(build.update() ? structure.handle : VK_NULL_HANDLE)
+                            .dstAccelerationStructure(structure.handle)
+                            .geometryCount(structure.description.geometries().size())
+                            .pGeometries(geometry);
+                    info.scratchData().deviceAddress(offset);
+                    rangePointers.put(i, range.address());
+                    offset = Math.addExact(offset, align(size));
+                }
+                // 同步上传到构建、BLAS 到 TLAS、构建到后续着色器或构建的访问，以及临时缓冲区的复用。
+                barrier(command, stack);
+                vkCmdBuildAccelerationStructuresKHR(command, infos, rangePointers);
+                barrier(command, stack);
+                for (var build : builds) ((VulkanAccelerationStructure) build.structure()).built = true;
+            } finally {
+                geometries.forEach(VkAccelerationStructureGeometryKHR.Buffer::free);
+                ranges.forEach(VkAccelerationStructureBuildRangeInfoKHR.Buffer::free);
+                infos.free();
+            }
+        }
+    }
+
+    private VulkanAccelerationStructure structure(AccelerationStructure resource) {
+        if (!(resource instanceof VulkanAccelerationStructure structure) || structure.owner != this) {
+            throw new IllegalArgumentException("Acceleration structure belongs to a different backend");
+        }
+        structure.checkOpen();
+        validate(structure.description);
+        return structure;
+    }
+
+    private long align(long value) {
+        return Math.addExact(value, scratchAlignment - 1) & -scratchAlignment;
+    }
 
     @Override
     public void upload(List<AccelerationStructureBackend.Upload> uploads) {
@@ -130,45 +211,6 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
                 vkCmdCopyBuffer(command, ((VulkanGpuBuffer) staging.buffer()).vkBuffer(), target.handle, copy);
             }
             barrier(command, stack);
-        }
-    }
-
-    private void record(AccelerationStructure resource, boolean update) {
-        requireSupport();
-        if (!(resource instanceof VulkanAccelerationStructure structure) || structure.owner != this) {
-            throw new IllegalArgumentException("Acceleration structure belongs to a different backend");
-        }
-        structure.checkOpen();
-        validate(structure.description);
-        if (update && (!structure.built || !structure.description.allowUpdate())) {
-            throw new IllegalStateException("Update requires a prior build with allowUpdate");
-        }
-        // 在分配临时资源前，拒绝渲染通道内的操作。
-        var command = VulkanCommandBridge.commandBuffer(device.createCommandEncoder());
-        long scratchSize = update ? structure.updateScratchSize : structure.buildScratchSize;
-        // 对齐的是设备地址，而不仅是缓冲区偏移；预留足够的填充空间以容纳整个使用范围。
-        long allocationSize = Math.addExact(Math.max(1, scratchSize), scratchAlignment - 1);
-        try (var scratch = new VulkanAccelerationStructureBuffer(this, allocationSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-             var stack = MemoryStack.stackPush();
-             var geometry = geometries(structure.description);
-             var ranges = VkAccelerationStructureBuildRangeInfoKHR.calloc(structure.description.geometries().size())) {
-            long scratchAddress = scratch.deviceAddress();
-            long aligned = Math.addExact(scratchAddress, scratchAlignment - 1) & -scratchAlignment;
-            var info = VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack).sType$Default()
-                    .type(nativeType(structure.type())).flags(flags(structure.description))
-                    .mode(update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR)
-                    .srcAccelerationStructure(update ? structure.handle : VK_NULL_HANDLE).dstAccelerationStructure(structure.handle)
-                    .geometryCount(structure.description.geometries().size())
-                    .pGeometries(geometry);
-            info.scratchData().deviceAddress(aligned);
-            for (int i = 0; i < ranges.capacity(); i++) {
-                ranges.get(i).primitiveCount(structure.description.geometries().get(i).primitiveCount());
-            }
-            // 同步上传到构建、BLAS 到 TLAS、构建到后续着色器或构建的访问，以及临时缓冲区的复用。
-            barrier(command, stack);
-            vkCmdBuildAccelerationStructuresKHR(command, info, stack.pointers(ranges.address()));
-            barrier(command, stack);
-            structure.built = true;
         }
     }
 

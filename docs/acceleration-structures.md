@@ -106,6 +106,8 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
 - TLAS：每帧只在 `endDynamic` 构建一次，`beginFrame` 仅为场景首次可用或重建后兜底。
   相机在 anchor 半径内移动不更新 TLAS；实例数量不变时原地 update，
   结构变化（实例增删、anchor 重定位、地形/BLAS 引用变化）才 build 或替换。
+  同一帧累积的 BLAS 构建/更新合并为一次多结构构建调用；地形每帧最多处理
+  `config/luminrt.properties` 的 `sceneSectionBudget`（默认 32，范围 1–512）个 section 更新，其余留到后续帧。
   空场景使用真正的零实例 TLAS。begin/setup 使用上一帧已发布的 TLAS 与地形，
   本帧动态数据在 feature 准备完成后可供 shadow/prepare/gbuffers/deferred/composite 使用。
 - 生命周期：TLAS 显式持有引用的 BLAS。替换时，旧 BLAS 租约在已录制 GPU 工作完成后释放；

@@ -182,7 +182,7 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
-    void failedReplacementReleasesNewResourcesAndCanBeRetried() {
+    void failedBuildRetainsPendingBatchAndCanBeRetried() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
             var original = scene.build(0, 0, 0);
@@ -190,11 +190,11 @@ class SceneAccelerationStructureTest {
             backend.failNextBuild = true;
             assertThrows(IllegalStateException.class, () -> scene.build(0, 0, 0));
             assertFalse(original.isClosed());
-            assertTrue(backend.structures.getLast().isClosed());
-            assertTrue(backend.buffers.getLast().isClosed());
-            var recovered = scene.build(0, 0, 0);
+            // 失败批次保留，下一次构建重试成功。
+            var recovered = (TestStructure)scene.build(0, 0, 0);
             assertNotSame(original, recovered);
             assertTrue(original.isClosed());
+            assertEquals(1, recovered.description.geometries().getFirst().primitiveCount());
         }
     }
 
