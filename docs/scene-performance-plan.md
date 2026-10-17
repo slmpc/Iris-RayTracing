@@ -1,6 +1,6 @@
 # 光追场景性能改造计划
 
-> 状态：Phase 0–6 已实现；真实 GPU 光影 smoke 需在有 Vulkan/ray query 设备时复验
+> 状态：Phase 0–6 已实现；Vulkan ray query smoke（RTX 4060）通过
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
 > 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景几何接口](scene-geometry.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
@@ -254,7 +254,7 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 ### Phase 4：批处理、scratch 复用、每帧预算（2–3 天）
 
 > 实现状态：批量构建、每批单 scratch、每帧 section 预算、synchronization2 收窄屏障已实现；
-> 屏障掩码仍需要在真实 GPU 上用验证层复验。
+> 屏障掩码已通过带 Vulkan 验证层的 ray query smoke。
 
 **RHI**
 
@@ -296,8 +296,8 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 
 ### Phase 6：清理与验证（1–2 天）
 
-> 实现状态：已完成。旧 UV/材质/场景头表与 helper 已删除；`gradlew build`、
-> 全量单测与 smoke 源集编译通过。真实 GPU 的 ray query/验证层 smoke 仍需在目标设备上执行。
+> 实现状态：已完成。旧 UV/材质/场景头表与 helper 已删除；`gradlew build`、全量单测与
+> `-PasSmokeTest runClient`（Vulkan 验证层、`LUMINRT_SETTINGS/SODIUM_TERRAIN/UV/AS_SMOKE_PASSED`）通过。
 
 - 删除废弃类与绑定：`SceneUVData`、`SceneMaterialData`，以及 `ProgramResourcesMixin`/`VulkanProgramResourcesMixin` 中的旧名称。
 - 文档：更新 `acceleration-structures.md`；`scene-uv.md` 重命名为 `scene-geometry.md`；同步示例 shader。
@@ -392,3 +392,16 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 | 记录内预留 alpha 标志 | OMM 与 coverage 支持（后续） |
 
 不移植的部分：Rust 场景编译器、压缩源缓存、材质/灯页、Rust worker 池、BLAS compaction 与批量 scratch（可作为后续 P2 项评估）。
+
+## 11. 验收记录
+
+2026-10-17 在开发机（NVIDIA RTX 4060 Laptop / Vulkan 1.4.351 + 验证层）执行：
+
+- `.\gradlew.bat build`：35 个单测通过，JAR 构建成功。
+- `.\gradlew.bat -PasSmokeTest compileSmokeJava`：smoke 源集编译通过。
+- `.\gradlew.bat -PasSmokeTest runClient`：`LUMINRT_SETTINGS_SMOKE_PASSED`、
+  `LUMINRT_SODIUM_TERRAIN_SMOKE_PASSED`、`LUMINRT_UV_SMOKE_PASSED`、
+  `LUMINRT_AS_SMOKE_PASSED`，无 Vulkan 验证错误，进程正常退出。
+- GLSL helper 经 `glslangValidator`（Vulkan 1.3）语法检查通过。
+
+未覆盖：完整资源包/光影包的画面与帧率验收、真实世界区段/实体压力、其他 GPU 驱动。
