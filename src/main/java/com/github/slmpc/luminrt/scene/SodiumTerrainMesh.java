@@ -55,6 +55,6 @@ public final class SodiumTerrainMesh {
             }
         }
         return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), texture,
-                materialData, colors, lightData, opaque);
+                materialData, colors, lightData, opaque, true);
     }
 }
