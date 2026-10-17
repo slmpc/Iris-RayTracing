@@ -29,7 +29,13 @@ bool hasUV = hit.found && luminrtGetHitUV(hit.instanceIndex, hit.geometryIndex,
 uint material, tint;
 bool hasMaterial = hit.found && luminrtGetHitMaterial(hit.instanceIndex, hit.geometryIndex,
     hit.primitiveIndex, material, tint);
+
+vec3 localPosition;
+bool hasPosition = hit.found && luminrtGetHitPosition(hit.instanceIndex, hit.geometryIndex,
+    hit.primitiveIndex, hit.barycentrics, localPosition);
 ```
+
+`localPosition` 是 anchor 相对坐标；世界坐标为 `anchor + localPosition`。位置与 UV 来自同一条记录，可用于重建法线或估计纹理足迹。
 
 `instanceIndex` 必须来自 `rayQueryGetIntersectionInstanceCustomIndexEXT`，不是 `rayQueryGetIntersectionInstanceIdEXT`。对 committed 三角形使用 `true` 的 getter，对候选三角形使用 `false`；调用前先检查 intersection type。helper 对版本不符、负索引、越界范围返回 `false`，并把输出设为零。
 

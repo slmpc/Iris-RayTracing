@@ -116,4 +116,25 @@ bool luminrtGetHitMaterial(int instanceIndex, int geometryIndex, int primitiveIn
     return true;
 }
 
+// 命中点的 anchor 相对位置；世界坐标为 anchor + position。
+bool luminrtGetHitPosition(int instanceIndex, int geometryIndex, int primitiveIndex,
+                           vec2 barycentrics, out vec3 position) {
+    position = vec3(0.0);
+    if (primitiveIndex < 0) return false;
+    LuminrtRecord record;
+    uvec4 geometry;
+    if (!luminrtGetRecord(instanceIndex, geometryIndex, uint(primitiveIndex), record, geometry)) return false;
+    float w0 = 1.0 - barycentrics.x - barycentrics.y;
+    if ((geometry.z & LUMINRT_FLAG_QUADS) != 0u) {
+        bool second = (uint(primitiveIndex) & 1u) != 0u;
+        vec3 a = (second ? record.p2 : record.p0).xyz;
+        vec3 b = (second ? record.p3 : record.p1).xyz;
+        vec3 c = (second ? record.p0 : record.p2).xyz;
+        position = a * w0 + b * barycentrics.x + c * barycentrics.y;
+    } else {
+        position = record.p0.xyz * w0 + record.p1.xyz * barycentrics.x + record.p2.xyz * barycentrics.y;
+    }
+    return true;
+}
+
 #endif
