@@ -33,31 +33,38 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
-    void retainsStaticBlasAndOnlyUpdatesCameraTransforms() {
+    void retainsStaticBlasAndOnlyRebasesOutsideAnchorRadius() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
             scene.put("terrain", List.of(triangle(0)), 30_000_000, 64, -30_000_000, false);
             var first = (TestStructure)scene.build(29_999_999.75, 63, -29_999_998);
             var blas = first.references.getFirst();
+            var anchor = scene.anchor();
+            assertNotNull(anchor);
             var input = ((TestBuffer)((AccelerationGeometry.Instances)first.description.geometries().getFirst()).buffer()).data;
-            assertEquals(0.25f, input.getFloat(12));
-            assertEquals(1, input.getFloat(28));
-            assertEquals(-2, input.getFloat(44));
+            assertEquals((float)(30_000_000 - anchor.x()), input.getFloat(12), 0.0f);
+            assertEquals((float)(64 - anchor.y()), input.getFloat(28), 0.0f);
+            assertEquals((float)(-30_000_000 - anchor.z()), input.getFloat(44), 0.0f);
             assertEquals(blas.deviceAddress(), input.getLong(56));
             assertEquals(0xff, input.getInt(48) >>> 24);
             assertEquals(1, input.getInt(52) >>> 24);
             var before = scene.statistics();
-            assertSame(first, scene.build(29_999_999.75, 63, -29_999_998));
+            // 相机平移但仍在 anchor 半径内：不重写实例，也不重建 TLAS。
+            assertSame(first, scene.build(30_000_000, 63, -29_999_998));
             assertEquals(before, scene.statistics());
-            assertSame(first, scene.build(30_000_000, 63, -29_999_998));
-            assertSame(blas, first.references.getFirst());
-            assertEquals(1, scene.statistics().blasBuilds());
+            assertEquals(0, scene.statistics().anchorRebases());
+            // 越过半径：anchor 变化，重写实例并更新 TLAS。
+            assertSame(first, scene.build(30_000_000 + 300, 63, -29_999_998));
+            assertEquals(1, scene.statistics().anchorRebases());
             assertEquals(1, scene.statistics().tlasUpdates());
+            assertEquals(1, scene.statistics().tlasBuilds());
+            // 几何变化：重建 BLAS 与 TLAS，旧 BLAS 关闭。
             scene.put("terrain", List.of(triangle(2)), 30_000_000, 64, -30_000_000, false);
-            assertSame(first, scene.build(30_000_000, 63, -29_999_998));
+            assertSame(first, scene.build(30_000_000 + 300, 63, -29_999_998));
             assertNotSame(blas, first.references.getFirst());
             assertTrue(blas.isClosed());
             assertEquals(2, scene.statistics().tlasBuilds());
+            assertEquals(2, scene.statistics().blasBuilds());
         }
         assertTrue(backend.structures.stream().allMatch(TestStructure::isClosed));
         assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
@@ -114,7 +121,47 @@ class SceneAccelerationStructureTest {
             scene.put("terrain", List.of(triangle(0)), 0, 0, 0, false);
             scene.build(0, 0, 0);
             assertEquals(2, backend.uploadBatches);
-            assertEquals(3, backend.lastUploadCount);
+            assertEquals(4, backend.lastUploadCount);
+        }
+    }
+
+    @Test
+    void cameraMovementWithinAnchorDoesNotRebuildOrUpload() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.put("terrain", List.of(triangle(0)), 1000, 0, 0, false);
+            var tlas = (TestStructure)scene.build(0, 0, 0);
+            var builds = scene.statistics().tlasBuilds();
+            var batches = backend.uploadBatches;
+            var bytes = scene.statistics().instanceBytes();
+            scene.build(100, 0, 0);
+            scene.build(256, 0, 0);
+            assertEquals(builds, scene.statistics().tlasBuilds());
+            assertEquals(batches, backend.uploadBatches);
+            assertEquals(bytes, scene.statistics().instanceBytes());
+            assertSame(tlas, scene.build(256, 0, 0));
+        }
+        assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
+    }
+
+    @Test
+    void headerCarriesAnchorGenerationAndInstanceCount() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.put("terrain", List.of(triangle(0)), 100, 0, 0, false);
+            scene.build(10, 0, 0);
+            var header = (TestBuffer)scene.headerBuffer();
+            assertEquals(SceneHeaderData.SIZE, header.size());
+            assertEquals(SceneHeaderData.VERSION, header.data.getInt(0));
+            assertEquals((int)scene.anchorGeneration(), header.data.getInt(4));
+            assertEquals(1, header.data.getInt(8));
+            assertEquals((int)scene.anchor().x(), header.data.getInt(16));
+            assertEquals((int)scene.anchor().y(), header.data.getInt(20));
+            assertEquals((int)scene.anchor().z(), header.data.getInt(24));
+            // 重定位后同一缓冲区携带新 anchor 与代数。
+            scene.build(10 + 300, 0, 0);
+            assertEquals((int)scene.anchorGeneration(), header.data.getInt(4));
+            assertEquals((int)scene.anchor().x(), header.data.getInt(16));
         }
     }
 

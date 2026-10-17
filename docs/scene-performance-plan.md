@@ -1,6 +1,6 @@
 # 光追场景性能改造计划
 
-> 状态：待评审
+> 状态：Phase 0–1 已实现；Phase 2 起待评审
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
 > 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景 UV 接口](scene-uv.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)

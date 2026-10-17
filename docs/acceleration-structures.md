@@ -77,9 +77,14 @@ OpenGL 的 `accelerationStructures()` 返回 `null`。Vulkan 不支持所需扩�
 uniform accelerationStructureEXT luminrt_Scene;
 ```
 
-场景使用**相机相对世界坐标**，射线方向为世界轴方向，不含 view rotation。
-从相机发射的射线起点为 `vec3(0.0)`；世界位置先减去本帧相机位置。
+场景使用 **anchor 相对世界坐标**，射线方向为世界轴方向，不含 view rotation。
+anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格半径内移动不会重写实例或 TLAS，
+超出半径时才重定位并递增 `anchorGeneration`。射线起点用 `luminrtSceneOrigin(cameraPositionInt, cameraPositionFract)`
+计算（整数部分先相减再叠加小数，远坐标下仍精确），命中世界坐标为 `anchor + origin + t*dir`。
+依赖世界坐标的光影包缓存（历史、辐照度、时序重投影）必须在 `anchorGeneration` 变化时失效。
 实例平移先在 CPU 用 double 相减，再转为 float，避免直接把远距离世界坐标写入 BLAS。
+`luminrt_SceneHeader`（32 B）自动绑定，提供 `uvec4(version, anchorGeneration, instanceCount, 0)`
+与 `ivec4(anchor.xyz, 0)`；未声明该块的旧光影包在相机离开 anchor 后会出现位置偏移。
 
 - 地形：Iris Vulkan 使用 Sodium 0.9.2，实际编译路径绕过原版 `SectionCompiler`。
   在 `ChunkBuildBuffers.createMesh` / `createModifiedTranslucentMesh` 保存当次格式，
@@ -96,9 +101,10 @@ uniform accelerationStructureEXT luminrt_Scene;
   采集后、创建主渲染通道前构建本帧动态 BLAS 和 TLAS。
   动态批次的 geometry 数量、顶点数量、索引及 opaque 属性完全一致时 refit；否则重建。
   当前将这些批次合入一个动态实例，不提供逐实体的稳定身份。
-- TLAS：相机平移或动态 refit、实例数量不变时原地 update；地形/BLAS 引用变化时 build。
-  实例数量变化时替换 TLAS 和实例输入缓冲区。空场景使用真正的零实例 TLAS。
-  相机与几何均未变化时跳过上传和构建。帧起始的 begin/setup 使用已发布地形与上一帧动态数据，
+- TLAS：每帧只在 `endDynamic` 构建一次，`beginFrame` 仅为场景首次可用或重建后兜底。
+  相机在 anchor 半径内移动不更新 TLAS；实例数量不变时原地 update，
+  结构变化（实例增删、anchor 重定位、地形/BLAS 引用变化）才 build 或替换。
+  空场景使用真正的零实例 TLAS。begin/setup 使用上一帧已发布的 TLAS 与地形，
   本帧动态数据在 feature 准备完成后可供 shadow/prepare/gbuffers/deferred/composite 使用。
 - 生命周期：TLAS 显式持有引用的 BLAS。替换时，旧 BLAS 租约在已录制 GPU 工作完成后释放；
   descriptor 快照持有旧 TLAS 时，其 BLAS 仍保持有效。重载 pipeline 释放 GPU 场景，
@@ -110,22 +116,24 @@ uniform accelerationStructureEXT luminrt_Scene;
 
 Sodium 地形支持 `RG32_UINT` 压缩位置的 quads；原版/动态路径支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
 四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
-仅 solid 地形标记 opaque，cutout、translucent 和动态几何保留 ray query candidate。
-**当前收集几何位置和 UV，UV 通过自动绑定的只读 `luminrt_SceneUV` SSBO 提供**，使用方式见 [场景 UV 接口](scene-uv.md)。尚未提供纹理标识、材质表或 alpha test；候选命中是否确认由 shader 决定，
+仅 solid 与 cutout 地形标记 opaque（alpha 尚未接入，cutout 无法在命中阶段剔除），translucent 和动态几何保留 ray query candidate。
+**当前收集几何位置、UV 与材质标识**，UV 通过自动绑定的只读 `luminrt_SceneUV` SSBO 提供，材质通过 `luminrt_SceneSurface` 提供，使用方式见 [场景 UV 接口](scene-uv.md)。尚未提供纹理标识或 alpha test；候选命中是否确认由 shader 决定，
 `gl_RayFlagsOpaqueEXT` 会把叶片透明区域等也视为几何遮挡。
 源模型的面剔除仍沿用原版编译输出，shader 顶点位移尚未反映到 AS。
 天空、云、天气、世界边界、第一人称手持物及绕过上述 CPU 顶点路径的自定义 GPU 绘制未接入。
 动态采集可能包含同一路径的贴图覆盖层，不声明逐材质或物理表面的去重。
 
 每次动态准备会复制位置与索引；动态 BLAS 稳定拓扑时只上传位置。
-相机移动时目前仍全量重写 TLAS 实例，输入上传及逐 BLAS 构建沿用保守屏障，
-未实现 prime-pt 的批量 scratch、局部实例上传、BLAS compaction 或构建预算。
-可通过 `WorldAccelerationStructures.statistics()` 查看驻留网格及 BLAS/TLAS build/update 次数；
+场景表、实例与场景头在同一次批量上传中提交；逐 BLAS 构建仍沿用保守屏障，
+未实现 prime-pt 的批量 scratch、局部实例上传、BLAS compaction 或每帧构建预算（见[性能改造计划](scene-performance-plan.md)）。
+可通过 `WorldAccelerationStructures.statistics()` 查看驻留网格、BLAS/TLAS build/update 次数、
+anchor 重定位次数与各类写入字节数；
 通过 `WorldAccelerationStructures.terrainSectionCount()` 查看 Sodium 地形快照数量（不含动态实例）。
 未做实际游戏帧率或显存测量，不声称达到 prime-pt 的性能。
 
 新增无窗口测试覆盖三角化绕序、源内存释放后的快照有效性、动态 refit、拓扑变化重建、
-大坐标相机相对变换、静态 BLAS 复用、空场景、删除及分配/构建失败后的重试。
+大坐标 anchor 相对变换、anchor 半径内相机移动零重写、重定位后实例与场景头更新、
+静态 BLAS 复用、空场景、删除及分配/构建失败后的重试。
 2026-10-11 已运行 Vulkan GPU smoke，默认与 Iris 扩展格式的实际合并网格、源码内存销毁后的快照，
 以及场景空 TLAS、refit、替换和删除路径均通过。
 该 smoke 不加载世界；真实区段采集、卸载及 Nsight 全场景结果仍需在世界中验收。

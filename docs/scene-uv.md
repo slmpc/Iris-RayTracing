@@ -40,6 +40,8 @@ bool hasUV = hit.found && luminrtGetHitUV(hit.instanceIndex,
 
 总大小 `16*(1+I+G+2*T)` 字节。没有 UV 的 geometry 仍占用三角形记录，其 UV 为零且标记为 0。空场景提供有效的 16 字节头部。该表不提供永久实体 ID；不要跨帧缓存 custom index。
 
+UV 与实例 anchor 无关：anchor 只改变实例平移与射线起点（见[加速结构](acceleration-structures.md)），UV 记录始终是三角形顶点的原样坐标。
+
 场景增删、静态几何替换或动态 UV 改变时上传新表，在同一渲染线程构建周期与 TLAS 一起发布。仅相机变换或动态位置改变时复用 UV 表。UV 改变不影响 BLAS 拓扑匹配，动态网格仍可 refit。旧表由命令编码器等待 GPU 完成后销毁；shader 存储读取也进入 Iris 的资源同步流程。CPU 快照持有 UV，并保留当前 geometry 用于表生成。
 
 ## UV 的含义和限制

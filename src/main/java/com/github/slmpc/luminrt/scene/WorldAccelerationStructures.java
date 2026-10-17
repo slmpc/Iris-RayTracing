@@ -30,6 +30,7 @@ public final class WorldAccelerationStructures {
     private static Vec3 camera = Vec3.ZERO;
     private static boolean captureDynamic;
     private static volatile boolean collectTerrain;
+    private static long profiledFrames;
 
     private WorldAccelerationStructures() {}
 
@@ -59,7 +60,8 @@ public final class WorldAccelerationStructures {
         DYNAMIC_MESHES.clear();
         if (!ensureScene()) return;
         flushTerrain();
-        scene.build(camera.x, camera.y, camera.z);
+        // 每帧唯一的构建放在 endDynamic；这里只为场景首次可用或重建后提供有效快照。
+        if (!scene.hasTlas()) scene.build(camera.x, camera.y, camera.z);
     }
 
     public static void beginDynamic() {
@@ -82,19 +84,22 @@ public final class WorldAccelerationStructures {
             scene.put(DYNAMIC, DYNAMIC_MESHES, camera.x, camera.y, camera.z, true);
             flushTerrain();
             scene.build(camera.x, camera.y, camera.z);
+            logProfile();
         } finally { DYNAMIC_MESHES.clear(); }
     }
 
     public static AccelerationStructure current() {
         RenderSystem.assertOnRenderThread();
         if (!ensureScene()) throw new IllegalStateException("luminrt_Scene requires the enabled ray tracing extension and an AS-capable Vulkan backend");
-        // setup/begin 程序也允许绑定空场景；正常世界帧已在渲染通道创建前完成构建。
-        return scene.build(camera.x, camera.y, camera.z);
+        // 稳态解析只返回已发布快照；仅当 pipeline 在首帧之前解析资源时才兜底构建一次。
+        if (!scene.hasTlas()) scene.build(camera.x, camera.y, camera.z);
+        return scene.currentTlas();
     }
 
     public static SceneAccelerationStructure.Statistics statistics() {
         RenderSystem.assertOnRenderThread();
-        return scene == null ? new SceneAccelerationStructure.Statistics(0, 0, 0, 0, 0) : scene.statistics();
+        return scene == null ? new SceneAccelerationStructure.Statistics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                             : scene.statistics();
     }
 
     /** 已确认上传且保存 CPU 快照的 Sodium 区段数量，不包含动态实例。 */
@@ -108,6 +113,23 @@ public final class WorldAccelerationStructures {
     public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentMaterial() {
         current();
         return scene.materialBuffer().shaderSlice();
+    }
+
+    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentHeader() {
+        current();
+        return scene.headerBuffer().shaderSlice();
+    }
+
+    /** 诊断开关打开时每 120 帧输出一次累计场景统计，不参与稳态逻辑。 */
+    private static void logProfile() {
+        if (!LuminRT.getConfig().isSceneProfilingEnabled() || ++profiledFrames % 120 != 0) return;
+        var stats = scene.statistics();
+        LuminRT.LOGGER.info(
+                "LuminRT scene: meshes={} blas={}/{} tlas={}/{} anchorGen={} rebase={} "
+                        + "bytes(in={},uv={},mat={},hdr={}) batches={} uploads={}",
+                stats.meshes(), stats.blasBuilds(), stats.blasUpdates(), stats.tlasBuilds(), stats.tlasUpdates(),
+                scene.anchorGeneration(), stats.anchorRebases(), stats.instanceBytes(), stats.uvBytes(),
+                stats.materialBytes(), stats.headerBytes(), stats.uploadBatches(), stats.uploadCount());
     }
 
     private static boolean ensureScene() {

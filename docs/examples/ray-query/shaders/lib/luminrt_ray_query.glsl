@@ -3,10 +3,29 @@
 
 uniform accelerationStructureEXT luminrt_Scene;
 
+// 场景头由 LuminRT 自动绑定；anchor 是实例平移的参考原点。
+layout(std430) readonly buffer luminrt_SceneHeader {
+    uvec4 luminrt_sceneInfo;   // x=版本, y=anchor 代数, z=实例数, w=保留
+    ivec4 luminrt_sceneAnchor; // xyz=anchor 世界坐标（整数）
+};
+
+// 相机相对射线起点：整数部分先相减，再叠加小数，远坐标下仍保持精度。
+vec3 luminrtSceneOrigin(ivec3 cameraPositionInt, vec3 cameraPositionFract) {
+    return vec3(cameraPositionInt - luminrt_sceneAnchor.xyz) + cameraPositionFract;
+}
+
+// 仅适用于相机坐标可精确表示为 float 的场景；远坐标请使用上面的重载。
+vec3 luminrtSceneOrigin(vec3 cameraPosition) {
+    return cameraPosition - vec3(luminrt_sceneAnchor.xyz);
+}
+
+// anchor 重定位时代数递增；依赖世界坐标的历史/缓存此时必须失效。
+uint luminrtSceneAnchorGeneration() { return luminrt_sceneInfo.y; }
+
 struct LuminRTHit {
     bool found;
     float t;
-    vec3 position;
+    vec3 position; // anchor 相对坐标；世界位置为 anchor + position
     int instanceIndex;
     int geometryIndex;
     int primitiveIndex;

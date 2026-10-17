@@ -8,9 +8,11 @@ import java.util.Properties;
 public final class LuminRTConfig {
     public static final boolean DEFAULT_EXTENSION_ENABLED = false;
     private static final String EXTENSION_ENABLED_KEY = "enableRayTracingExtension";
+    private static final String PROFILE_SCENE_KEY = "profileScene";
 
     private final Path path;
     private volatile boolean extensionEnabled = DEFAULT_EXTENSION_ENABLED;
+    private volatile boolean sceneProfilingEnabled;
 
     public LuminRTConfig(Path path) {
         this.path = path;
@@ -29,6 +31,14 @@ public final class LuminRTConfig {
         extensionEnabled = enabled;
     }
 
+    public boolean isSceneProfilingEnabled() {
+        return sceneProfilingEnabled;
+    }
+
+    public void setSceneProfilingEnabled(boolean enabled) {
+        sceneProfilingEnabled = enabled;
+    }
+
     public void load() throws IOException {
         var properties = new Properties();
         if (Files.exists(path)) {
@@ -38,11 +48,14 @@ public final class LuminRTConfig {
         }
         extensionEnabled = Boolean.parseBoolean(properties.getProperty(
                 EXTENSION_ENABLED_KEY, Boolean.toString(DEFAULT_EXTENSION_ENABLED)));
+        sceneProfilingEnabled = Boolean.parseBoolean(properties.getProperty(
+                PROFILE_SCENE_KEY, Boolean.toString(false)));
     }
 
     public void save() throws IOException {
         var properties = new Properties();
         properties.setProperty(EXTENSION_ENABLED_KEY, Boolean.toString(extensionEnabled));
+        properties.setProperty(PROFILE_SCENE_KEY, Boolean.toString(sceneProfilingEnabled));
         Files.createDirectories(path.toAbsolutePath().getParent());
         try (var output = Files.newOutputStream(path)) {
             properties.store(output, "LuminRT");

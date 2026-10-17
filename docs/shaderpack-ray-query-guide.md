@@ -47,15 +47,16 @@ LuminRT 在 shader 资源转换阶段识别该声明，并为它分配 set 0 中
 
 当前自动资源还支持普通固定长度一维数组，但 `luminrt_Scene` 自动绑定只提供一个 TLAS（标量或长度为 1 的数组）。数组资源需要宿主显式通过 `AccelerationStructureBindings.setAccelerationStructures` 注册，普通光影包不能调用这个 Java API。
 
-场景采用相机相对坐标：
+场景采用 anchor 相对坐标：
 
-- TLAS 实例变换中的平移是 `worldPosition - cameraPosition`；
-- 射线起点通常是 `vec3(0.0)`；
-- 射线方向和命中位置在这个相对世界空间中；
+- TLAS 实例变换中的平移是 `worldPosition - anchor`；
+- anchor 固定在 64 格整数网格上，相机在其 256 格半径内移动不会重写实例或 TLAS；
+- 射线起点用 `luminrtSceneOrigin(cameraPositionInt, cameraPositionFract)`（整数部分先相减再叠加小数，远坐标下仍精确）；只有相机坐标可精确表示为 float 时才用单参数重载；
+- 射线方向和命中位置都在 anchor 相对空间中，命中世界坐标为 `anchor + hit.position`；
 - `gbufferModelViewInverse` 用于把视空间方向转换到世界方向；
-- 不要再把 `cameraPosition` 加到 ray origin，除非你明确改写了自己的坐标约定。
+- 不要再把 `cameraPosition` 直接加到 ray origin；helper 已扣除 anchor。
 
-CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 的 `cameraPosition` 会对远距离坐标进行重定位，不能直接与未经同样重定位的绝对世界坐标混用。需要绝对位置时，应核对 `cameraPositionInt` / `cameraPositionFract` 的约定；ray query 本身不需要绝对位置。
+`luminrt_SceneHeader` 提供 `anchor` 与 `anchorGeneration`；代数变化时，任何锚定世界坐标的缓存（历史、辐照度、时序重投影）必须失效。CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 的 `cameraPosition` 会对远距离坐标进行重定位，不能直接与未经同样重定位的绝对世界坐标混用。需要绝对位置时，应核对 `cameraPositionInt` / `cameraPositionFract` 的约定；ray query 本身不需要绝对位置。
 
 ## 3. 当前几何内容和缺失内容
 
@@ -172,7 +173,7 @@ vec2 ndc = texcoord * 2.0 - 1.0;
 vec4 viewPoint = gbufferProjectionInverse * vec4(ndc, -1.0, 1.0);
 vec3 viewDirection = normalize(viewPoint.xyz / viewPoint.w);
 vec3 worldDirection = normalize(mat3(gbufferModelViewInverse) * viewDirection);
-vec3 origin = vec3(0.0);
+vec3 origin = luminrtSceneOrigin(cameraPositionInt, cameraPositionFract); // anchor 相对；需包含 ray_query helper
 ```
 
 此版本 Iris 会把 shaderpack-facing 投影恢复为传统 NDC `[-1,1]`，并转换普通深度采样，使光影包看到正向深度。使用正常 Iris 路径的 `depthtex` 时，可用 `depth * 2.0 - 1.0` 与 `gbufferProjectionInverse` 重建视空间位置；不要再次执行 reverse-Z。直接读取后端原始纹理或自定义未经转换的资源时，需要另行核对约定。射线方向生成只使用 near-plane 方向，不需要读取 depth；如果从屏幕像素发射第一段 primary ray，命中深度可用于与 raster G-buffer 对照。
@@ -265,7 +266,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 - **把 instance custom index 当成 block ID。** 当前自动场景写入的是实例序号，不是材质或方块 ID。
 - **用 `primitiveIndex` 查 Minecraft 原始 vertex buffer。** AS 是独立复制的三角化几何，原版绘制 buffer 可能已释放、排序或复用，且当前没有稳定的 geometry-to-material 表。
 - **把 cutout/translucent 当作 alpha-aware。** 当前已提供 UV，但没有纹理标识/材质 alpha 规则。
-- **把相机绝对坐标直接写入 ray origin。** 场景是相机相对坐标，应从 `vec3(0)` 开始。
+- **把相机绝对坐标直接写入 ray origin。** 场景是 anchor 相对坐标；用 `luminrtSceneOrigin(cameraPositionInt, cameraPositionFract)` 计算起点。
 - **在 render pass 内自行录制 Vulkan AS 命令。** LuminRT 已在 render pass 外完成构建；光影包只通过 shader 资源使用 TLAS。
 - **每次 bounce 使用零偏移。** 会造成 self-intersection；使用基于法线和场景尺度的有限 offset，并清洗非有限值。
 - **对 Iris 已转换的深度再次 reverse-Z。** 正常 shaderpack 路径使用 Iris 提供的逆矩阵和深度 helper，原始后端纹理另行核对。

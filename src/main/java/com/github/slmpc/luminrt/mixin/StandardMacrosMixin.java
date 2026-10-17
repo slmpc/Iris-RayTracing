@@ -40,6 +40,7 @@ public abstract class StandardMacrosMixin {
                     && provider.accelerationStructures().supportsRayQuery()) {
                 define(standardDefines, "LUMINRT_SCENE_MATERIAL_API", "1");
                 define(standardDefines, "LUMINRT_HAS_SCENE_MATERIAL_RAY_QUERY");
+                define(standardDefines, "LUMINRT_SCENE_ANCHOR_API", "1");
             }
         }
     }
