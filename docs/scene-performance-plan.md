@@ -1,6 +1,6 @@
 # 光追场景性能改造计划
 
-> 状态：Phase 0–3 已实现；Phase 4 批处理/预算已实现，屏障收窄待验证
+> 状态：Phase 0–5 已实现；Phase 6 进行中
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
 > 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景几何接口](scene-geometry.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
@@ -254,8 +254,8 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 
 ### Phase 4：批处理、scratch 复用、每帧预算（2–3 天）
 
-> 实现状态：批量构建、每批单 scratch、每帧 section 预算已实现；
-> 屏障仍是保守的全内存屏障，待 GPU smoke 验证后再收窄。
+> 实现状态：批量构建、每批单 scratch、每帧 section 预算、synchronization2 收窄屏障已实现；
+> 屏障掩码仍需要在真实 GPU 上用验证层复验。
 
 **RHI**
 
@@ -278,6 +278,9 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 ---
 
 ### Phase 5：把打包移出渲染线程（2–3 天）
+
+> 实现状态：Sodium 地形解码已移到构建线程并在渲染线程只发布快照；
+> 动态网格仍在渲染线程打包（数量远小于地形），后续可复用同一队列。
 
 **现状**：`SodiumRenderRegionManagerMixin` 在渲染线程 `uploadResults` 中逐顶点解码并分配数组；`TriangleMesh` 构造与访问器再 clone 一遍。
 

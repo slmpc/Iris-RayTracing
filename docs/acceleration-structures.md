@@ -89,7 +89,8 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
 
 - 地形：Iris Vulkan 使用 Sodium 0.9.2，实际编译路径绕过原版 `SectionCompiler`。
   在 `ChunkBuildBuffers.createMesh` / `createModifiedTranslucentMesh` 保存当次格式，
-  在 `RenderRegionManager.uploadResults` 正式上传后、结果销毁前复制各层网格，
+  并在 Sodium 构建线程直接解码为自持 CPU 快照；`RenderRegionManager.uploadResults`
+  在正式上传后、结果销毁前只取走快照发布，缺失时回退到渲染线程解码。
   解码 `a_Position` 的 20 位区段局部坐标，支持 Sodium Compact 与 Iris XHFP 扩展步长。
   不发布取消、过期或未被上传的构建结果；纯 `ChunkSortOutput` 不替换快照。
   原版采集入口仍在 `SectionCompiler.compile` 复制 `MeshData`，并随 `CompiledSectionMesh` 发布。

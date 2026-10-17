@@ -28,10 +28,17 @@ public abstract class SodiumRenderRegionManagerMixin {
                 for (var pass : DefaultTerrainRenderPasses.ALL) {
                     var mesh = built.getMesh(pass);
                     if (mesh == null) continue;
-                    var format = ((SodiumMeshAccess)mesh).luminrt$getVertexFormat();
-                    if (format == null) throw new IllegalStateException("Missing Sodium terrain vertex format");
-                    var copied = SodiumTerrainMesh.copy(mesh.getVertexData().getDirectBuffer(), format,
-                            !pass.isTranslucent());
+                    var access = (SodiumMeshAccess)mesh;
+                    // 优先使用构建线程已解码的快照；缺失时回退到渲染线程解码。
+                    var copied = access.luminrt$takePacked(pass);
+                    if (copied == null && pass.isTranslucent())
+                        copied = access.luminrt$takePacked(SodiumMeshAccess.MODIFIED_TRANSLUCENT);
+                    if (copied == null) {
+                        var format = access.luminrt$getVertexFormat();
+                        if (format == null) throw new IllegalStateException("Missing Sodium terrain vertex format");
+                        copied = SodiumTerrainMesh.copy(mesh.getVertexData().getDirectBuffer(), format,
+                                !pass.isTranslucent());
+                    }
                     if (copied != null) geometry.add(copied);
                 }
             }

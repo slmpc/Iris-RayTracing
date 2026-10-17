@@ -163,10 +163,10 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
                     rangePointers.put(i, range.address());
                     offset = Math.addExact(offset, align(size));
                 }
-                // 同步上传到构建、BLAS 到 TLAS、构建到后续着色器或构建的访问，以及临时缓冲区的复用。
-                barrier(command, stack);
+                // 收窄到构建输入/结构读写阶段；批量内所有结构共用同一 scratch 分配。
+                buildBarrierBefore(command, stack);
                 vkCmdBuildAccelerationStructuresKHR(command, infos, rangePointers);
-                barrier(command, stack);
+                buildBarrierAfter(command, stack);
                 for (var build : builds) ((VulkanAccelerationStructure) build.structure()).built = true;
             } finally {
                 geometries.forEach(VkAccelerationStructureGeometryKHR.Buffer::free);
@@ -196,7 +196,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         var encoder = device.createCommandEncoder();
         var command = VulkanCommandBridge.commandBuffer(encoder);
         try (var stack = MemoryStack.stackPush()) {
-            barrier(command, stack);
+            uploadBarrierBefore(command, stack);
             for (var upload : uploads) {
                 if (!(upload.target() instanceof VulkanAccelerationStructureBuffer target) || target.owner != this) {
                     throw new IllegalArgumentException("Upload target belongs to a different Vulkan backend");
@@ -210,7 +210,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
                         .srcOffset(staging.offset()).dstOffset(upload.offset()).size(bytes);
                 vkCmdCopyBuffer(command, ((VulkanGpuBuffer) staging.buffer()).vkBuffer(), target.handle, copy);
             }
-            barrier(command, stack);
+            uploadBarrierAfter(command, stack);
         }
     }
 
@@ -282,13 +282,52 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         }
     }
 
-    void barrier(VkCommandBuffer command, MemoryStack stack) {
+    void barrier(VkCommandBuffer command, MemoryStack stack, long sourceStage, long sourceAccess,
+                 long destinationStage, long destinationAccess) {
         var memory = VkMemoryBarrier2.calloc(1, stack).sType$Default()
-                .srcStageMask(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR)
-                .srcAccessMask(VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR)
-                .dstStageMask(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR)
-                .dstAccessMask(VK_ACCESS_2_MEMORY_READ_BIT_KHR | VK_ACCESS_2_MEMORY_WRITE_BIT_KHR);
+                .srcStageMask(sourceStage).srcAccessMask(sourceAccess)
+                .dstStageMask(destinationStage).dstAccessMask(destinationAccess);
         vkCmdPipelineBarrier2KHR(command, VkDependencyInfo.calloc(stack).sType$Default().pMemoryBarriers(memory));
+    }
+
+    /** 上传前：等待上一帧对目标缓冲的读取和上传完成。 */
+    void uploadBarrierBefore(VkCommandBuffer command, MemoryStack stack) {
+        barrier(command, stack,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR
+                        | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR, VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR);
+    }
+
+    /** 上传后：让后续构建与着色器看到新数据。 */
+    void uploadBarrierAfter(VkCommandBuffer command, MemoryStack stack) {
+        barrier(command, stack,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR, VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+                VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                VK_ACCESS_2_SHADER_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+    }
+
+    /** 构建前：等待构建输入缓冲的写入和上一帧读取。 */
+    void buildBarrierBefore(VkCommandBuffer command, MemoryStack stack) {
+        barrier(command, stack,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR
+                        | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+                VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                VK_ACCESS_2_SHADER_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+    }
+
+    /** 构建后：让 TLAS 构建和后续 ray query 看到新结构。 */
+    void buildBarrierAfter(VkCommandBuffer command, MemoryStack stack) {
+        barrier(command, stack,
+                VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR
+                        | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR);
     }
 
     private static int nativeType(AccelerationStructure.Type type) {
