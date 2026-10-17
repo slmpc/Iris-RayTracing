@@ -11,7 +11,7 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** 工作线程只发布 CPU 网格事件；资源创建、构建及释放始终在渲染线程执行。 */
@@ -24,7 +24,14 @@ public final class WorldAccelerationStructures {
     private static final TerrainGeometryRegistry TERRAIN = new TerrainGeometryRegistry();
     private static final Map<RenderSection, SectionMesh> RESIDENT = new ConcurrentHashMap<>();
     private static final Map<RenderSection, SectionMesh> UPLOADED = new IdentityHashMap<>();
-    private static final List<TriangleMesh> DYNAMIC_MESHES = new ArrayList<>();
+    private static final ExecutorService DYNAMIC_PACKER = Executors.newFixedThreadPool(
+            Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() / 2)),
+            runnable -> {
+                var thread = new Thread(runnable, "LuminRT dynamic packer");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final List<Future<TriangleMesh>> DYNAMIC_FUTURES = new ArrayList<>();
     private static final LinkedHashMap<Object, TerrainGeometryRegistry.Change> PENDING_TERRAIN = new LinkedHashMap<>();
     private static SceneAccelerationStructure scene;
     private static AccelerationStructureBackend owner;
@@ -58,7 +65,7 @@ public final class WorldAccelerationStructures {
         RenderSystem.assertOnRenderThread();
         camera = position;
         captureDynamic = false;
-        DYNAMIC_MESHES.clear();
+        cancelDynamicPacking();
         if (!ensureScene()) return;
         flushTerrain();
         // 每帧唯一的构建放在 endDynamic；这里只为场景首次可用或重建后提供有效快照。
@@ -68,25 +75,57 @@ public final class WorldAccelerationStructures {
     public static void beginDynamic() {
         RenderSystem.assertOnRenderThread();
         captureDynamic = scene != null && collectTerrain;
-        DYNAMIC_MESHES.clear();
+        cancelDynamicPacking();
     }
 
+    /** 同步复制原始顶点字节，把逐顶点解码交给打包线程；endDynamic 统一等待。 */
     public static void capture(MeshData mesh) {
         if (!captureDynamic) return;
-        var copied = TriangleMesh.copy(mesh, false);
-        if (copied != null) DYNAMIC_MESHES.add(copied);
+        var state = mesh.drawState();
+        var source = mesh.vertexBuffer();
+        int bytes = source.remaining();
+        if (bytes <= 0) return;
+        var data = java.nio.ByteBuffer.allocate(bytes);
+        data.put(source.duplicate());
+        data.flip();
+        var format = state.format();
+        var topology = state.primitiveTopology();
+        int count = state.vertexCount();
+        DYNAMIC_FUTURES.add(DYNAMIC_PACKER.submit(
+                () -> TriangleMesh.fromBuffered(data, format, topology, count, false)));
     }
 
     public static void endDynamic() {
         RenderSystem.assertOnRenderThread();
         if (!captureDynamic) return;
         captureDynamic = false;
+        var meshes = new ArrayList<TriangleMesh>(DYNAMIC_FUTURES.size());
         try {
-            scene.put(DYNAMIC, DYNAMIC_MESHES, camera.x, camera.y, camera.z, true);
+            for (var future : DYNAMIC_FUTURES) {
+                var mesh = future.get();
+                if (mesh != null) meshes.add(mesh);
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Dynamic packing interrupted", interrupted);
+        } catch (ExecutionException failure) {
+            throw new IllegalStateException("Dynamic packing failed", failure.getCause());
+        } finally {
+            DYNAMIC_FUTURES.clear();
+        }
+        try {
+            scene.put(DYNAMIC, meshes, camera.x, camera.y, camera.z, true);
             flushTerrain();
             scene.build(camera.x, camera.y, camera.z);
             logProfile();
-        } finally { DYNAMIC_MESHES.clear(); }
+        } finally {
+            meshes.clear();
+        }
+    }
+
+    private static void cancelDynamicPacking() {
+        for (var future : DYNAMIC_FUTURES) future.cancel(false);
+        DYNAMIC_FUTURES.clear();
     }
 
     public static AccelerationStructure current() {
@@ -185,7 +224,7 @@ public final class WorldAccelerationStructures {
     public static void reset(boolean worldChanged) {
         RenderSystem.assertOnRenderThread();
         collectTerrain = captureDynamic = false;
-        DYNAMIC_MESHES.clear();
+        cancelDynamicPacking();
         PENDING_TERRAIN.clear();
         if (scene != null) scene.close();
         scene = null; owner = null; UPLOADED.clear();

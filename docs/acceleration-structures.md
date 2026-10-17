@@ -101,8 +101,9 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
   开启拓展时主动请求区段重编译，即使 Iris 的格式未变化，也能补齐此前已加载的区段。
 - 动态顶点：仅在主世界 `FeatureRenderDispatcher.prepareFrame` 期间采集
   `StagedVertexBuffer.Draw.append` 的真实 `MeshData`，包括走此路径的实体、方块实体、移动方块及粒子。
-  采集后、创建主渲染通道前构建本帧动态 BLAS 和 TLAS。
-  动态批次的 geometry 数量、顶点数量、索引及 opaque 属性完全一致时 refit；否则重建。
+  采集时同步复制原始顶点字节，由打包线程解码；`endDynamic` 汇合结果后、
+  创建主渲染通道前构建本帧动态 BLAS 和 TLAS。
+  动态批次的 geometry 数量、顶点数量、索引及 opaque 属性完全一致时原地重写记录并 refit；否则重建。
   当前将这些批次合入一个动态实例，不提供逐实体的稳定身份。
 - TLAS：每帧只在 `endDynamic` 构建一次，`beginFrame` 仅为场景首次可用或重建后兜底。
   相机在 anchor 半径内移动不更新 TLAS；实例数量不变时原地 update，

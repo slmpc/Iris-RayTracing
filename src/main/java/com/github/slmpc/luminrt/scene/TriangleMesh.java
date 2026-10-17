@@ -3,7 +3,9 @@ package com.github.slmpc.luminrt.scene;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
 
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
@@ -88,36 +90,41 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] 
 
     public static TriangleMesh copy(MeshData mesh, boolean opaque) {
         var state = mesh.drawState();
-        var position = state.format().getElement("Position");
+        return fromBuffered(mesh.vertexBuffer(), state.format(), state.primitiveTopology(),
+                state.vertexCount(), opaque);
+    }
+
+    /** 从自持顶点字节解码；不借用 Minecraft 缓冲，可在工作线程调用。 */
+    public static TriangleMesh fromBuffered(ByteBuffer vertexBuffer, VertexFormat format,
+                                            PrimitiveTopology topology, int count, boolean opaque) {
+        var position = format.getElement("Position");
         if (position == null || position.format() != GpuFormat.RGB32_FLOAT) return null;
-        var topology = state.primitiveTopology();
         if (topology != PrimitiveTopology.QUADS && topology != PrimitiveTopology.TRIANGLES
                 && topology != PrimitiveTopology.TRIANGLE_STRIP && topology != PrimitiveTopology.TRIANGLE_FAN) return null;
-        int count = state.vertexCount();
         if (count < 3) return null;
-        var source = mesh.vertexBuffer().duplicate().order(ByteOrder.nativeOrder());
+        var source = vertexBuffer.duplicate().order(ByteOrder.nativeOrder());
         float[] xyz = new float[Math.multiplyExact(count, 3)];
         int[] materialData = new int[count];
         int[] colors = new int[count];
         int[] lightData = new int[count];
-        var uv = state.format().getElement("UV0");
+        var uv = format.getElement("UV0");
         if (uv != null && uv.format() != GpuFormat.RG32_FLOAT) throw new IllegalArgumentException("Unsupported UV0 format");
         float[] texture = uv == null ? new float[0] : new float[Math.multiplyExact(count, 2)];
-        var color = state.format().getElement("Color");
-        var light = state.format().getElement("UV2");
-        var entity = state.format().getElement("mc_Entity");
+        var color = format.getElement("Color");
+        var light = format.getElement("UV2");
+        var entity = format.getElement("mc_Entity");
         for (int i = 0; i < count; i++) {
-            int offset = source.position() + i * state.format().getVertexSize() + position.offset();
+            int offset = source.position() + i * format.getVertexSize() + position.offset();
             for (int axis = 0; axis < 3; axis++) xyz[i * 3 + axis] = source.getFloat(offset + axis * 4);
             if (uv != null) {
-                int uvOffset = source.position() + i * state.format().getVertexSize() + uv.offset();
+                int uvOffset = source.position() + i * format.getVertexSize() + uv.offset();
                 texture[i * 2] = source.getFloat(uvOffset);
                 texture[i * 2 + 1] = source.getFloat(uvOffset + 4);
             }
-            colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * state.format().getVertexSize() + color.offset());
-            lightData[i] = light == null ? 0 : Short.toUnsignedInt(source.getShort(source.position() + i * state.format().getVertexSize() + light.offset()))
-                    | Short.toUnsignedInt(source.getShort(source.position() + i * state.format().getVertexSize() + light.offset() + 2)) << 16;
-            materialData[i] = entity == null ? 0 : source.getShort(source.position() + i * state.format().getVertexSize() + entity.offset());
+            colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * format.getVertexSize() + color.offset());
+            lightData[i] = light == null ? 0 : Short.toUnsignedInt(source.getShort(source.position() + i * format.getVertexSize() + light.offset()))
+                    | Short.toUnsignedInt(source.getShort(source.position() + i * format.getVertexSize() + light.offset() + 2)) << 16;
+            materialData[i] = entity == null ? 0 : source.getShort(source.position() + i * format.getVertexSize() + entity.offset());
         }
         // 四边形排序仅改变绘制顺序；AS 保持固定的 0-1-2、2-3-0 三角化。
         int[] indices = sequentialIndices(topology, count);

@@ -279,8 +279,8 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 
 ### Phase 5：把打包移出渲染线程（2–3 天）
 
-> 实现状态：Sodium 地形解码已移到构建线程并在渲染线程只发布快照；
-> 动态网格仍在渲染线程打包（数量远小于地形），后续可复用同一队列。
+> 实现状态：Sodium 地形在构建线程直接解码；动态网格同步复制原始顶点字节后由打包线程解码，
+> `endDynamic` 汇合结果再发布。渲染线程不再执行逐顶点解码。
 
 **现状**：`SodiumRenderRegionManagerMixin` 在渲染线程 `uploadResults` 中逐顶点解码并分配数组；`TriangleMesh` 构造与访问器再 clone 一遍。
 
