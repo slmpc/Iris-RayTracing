@@ -94,6 +94,7 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
   不发布取消、过期或未被上传的构建结果；纯 `ChunkSortOutput` 不替换快照。
   原版采集入口仍在 `SectionCompiler.compile` 复制 `MeshData`，并随 `CompiledSectionMesh` 发布。
   每个区段一个 BLAS，solid/cutout/translucent 各为独立 geometry；未变化的区段不重新上传或构建。
+  BLAS 直接以 112 B 记录范围为顶点输入，索引复用一张全局共享 pattern，不再逐区段生成索引。
   区段重编译替换 BLAS；透明排序仅修改光栅索引，不触发 AS 重建。
   Sodium 的 `RenderSection.delete` 删除旧快照与实例；世界重置清空注册。
   开启拓展时主动请求区段重编译，即使 Iris 的格式未变化，也能补齐此前已加载的区段。

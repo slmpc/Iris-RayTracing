@@ -120,8 +120,8 @@ class SceneAccelerationStructureTest {
         try (var scene = new SceneAccelerationStructure(backend)) {
             scene.put("terrain", List.of(triangle(0)), 0, 0, 0, false);
             scene.build(0, 0, 0);
-            // 第一次批量为网格记录上传，第二次为目录与实例。
-            assertEquals(2, backend.uploadBatches);
+            // 本轮只有目录与实例走批量上传；记录与共享索引使用各自的缓冲上传。
+            assertEquals(1, backend.uploadBatches);
             assertEquals(2, backend.lastUploadCount);
         }
     }
@@ -215,18 +215,58 @@ class SceneAccelerationStructureTest {
             scene.put("dynamic", List.of(moved), 0, 0, 0, true);
             scene.build(0, 0, 0);
             int second = recordOffset(scene);
-            // 位置变化需要新记录范围；旧范围在旧目录退休后释放。
-            assertNotEquals(first, second);
+            // 位置变化原地重写记录，地址保持不变并 refit。
+            assertEquals(first, second);
             assertEquals(1f, ((TestBuffer)scene.recordsBuffer()).data.getFloat(second), 0f);
-            // 内容完全相同时只 refit，不重新打包记录。
+            // 内容完全相同时不重写记录，只提交目录与实例。
             int batches = backend.uploadBatches;
             scene.put("dynamic", List.of(moved), 0, 0, 0, true);
             scene.build(0, 0, 0);
             assertEquals(second, recordOffset(scene));
-            // 位置上传一批 + 目录/实例一批，记录未重写。
-            assertEquals(batches + 2, backend.uploadBatches);
+            assertEquals(batches + 1, backend.uploadBatches);
         }
         assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
+    }
+
+    @Test
+    void recordsFeedBlasWithSharedIndexPattern() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.put("a", List.of(triangle(0)), 0, 0, 0, false);
+            scene.put("b", List.of(triangle(4)), 0, 0, 0, false);
+            var tlas = (TestStructure)scene.build(0, 0, 0);
+            var a = (AccelerationGeometry.Triangles)((TestStructure)tlas.references.get(0)).description.geometries().getFirst();
+            var b = (AccelerationGeometry.Triangles)((TestStructure)tlas.references.get(1)).description.geometries().getFirst();
+            assertSame(scene.recordsBuffer(), a.vertices());
+            assertEquals(SceneRecordData.STRIDE, a.vertexStride());
+            assertEquals(SceneRecordData.VERTICES_PER_RECORD, a.vertexCount());
+            assertEquals(1, a.primitiveCount());
+            assertEquals(AccelerationGeometry.IndexType.UINT32, a.indexType());
+            // 不同实例的 geometry 共享同一份索引 pattern。
+            assertSame(a.indices(), b.indices());
+        }
+    }
+
+    @Test
+    void growsSharedIndexPatternAndRebuildsExistingBlas() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend, 1 << 16, 1)) {
+            scene.put("a", List.of(triangle(0)), 0, 0, 0, false);
+            var tlas = (TestStructure)scene.build(0, 0, 0);
+            var first = tlas.references.getFirst();
+            // 两条记录的三角形网格超过初始索引容量 1，触发 pattern 扩容。
+            var two = new TriangleMesh(
+                    new float[]{0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0, 0, 3, 0, 0, 2, 1, 0},
+                    new int[]{0, 1, 2, 3, 4, 5}, true);
+            scene.put("b", List.of(two), 0, 0, 0, false);
+            var rebuiltTlas = (TestStructure)scene.build(0, 0, 0);
+            assertTrue(first.isClosed());
+            assertNotSame(first, rebuiltTlas.references.getFirst());
+            var a = (AccelerationGeometry.Triangles)((TestStructure)rebuiltTlas.references.get(0)).description.geometries().getFirst();
+            var b = (AccelerationGeometry.Triangles)((TestStructure)rebuiltTlas.references.get(1)).description.geometries().getFirst();
+            assertSame(a.indices(), b.indices());
+            assertEquals(2, b.primitiveCount());
+        }
     }
 
     /** 读取唯一实例中第 {@code geometryIndex} 个 geometry 的记录起始偏移。 */

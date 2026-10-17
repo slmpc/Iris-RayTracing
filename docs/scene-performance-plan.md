@@ -1,6 +1,6 @@
 # 光追场景性能改造计划
 
-> 状态：Phase 0–2.3 已实现；Phase 2.4 起实现中
+> 状态：Phase 0–2 已实现；Phase 3 起实现中
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
 > 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景几何接口](scene-geometry.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
@@ -145,8 +145,8 @@
 
 ### Phase 2：统一几何记录 + 分段 arena（核心，3–5 天）
 
-> 实现状态：2.1–2.3 已完成。实际记录为 **112 B**（UV 用 f32 以支持 tiling 与图集精度），
-> 目录与记录拆成两个 SSBO；Phase 2.4（记录直接作为 BLAS 输入）仍待实现。
+> 实现状态：2.1–2.4 已完成。实际记录为 **112 B**（UV 用 f32 以支持 tiling 与图集精度），
+> 目录与记录拆成两个 SSBO，记录直接作为 BLAS 顶点输入并使用共享索引 pattern。
 
 #### 2.1 QuadRecord 布局（已实现）
 

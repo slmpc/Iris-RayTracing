@@ -27,6 +27,8 @@ public final class SceneRecordData {
     public static final int MATERIAL_OFFSET = 100;
     public static final int MATERIAL_ID_MASK = 0xFFFF;
     public static final int MATERIAL_OPAQUE_BIT = 1 << 16;
+    /** 每条记录固定 4 个顶点槽；独立三角形复用末角。 */
+    public static final int VERTICES_PER_RECORD = 4;
 
     private SceneRecordData() {}
 
@@ -77,6 +79,26 @@ public final class SceneRecordData {
         }
         // 绝对写入不移动 position；把末尾作为 flip 后的 limit。
         target.position(bytes);
+    }
+
+    /** 写入共享 BLAS 索引 pattern；所有 geometry 的顶点都从自身记录范围起点 0 开始。 */
+    public static void writeIndexPattern(ByteBuffer target, boolean quads, int records) {
+        int perRecord = quads ? 6 : 3;
+        int words = Math.multiplyExact(records, perRecord);
+        if (target.capacity() < Math.multiplyExact(words, 4)) throw new IllegalArgumentException("索引缓冲区空间不足");
+        target.order(ByteOrder.nativeOrder());
+        for (int record = 0; record < records; record++) {
+            int base = record * VERTICES_PER_RECORD;
+            target.putInt(base);
+            target.putInt(base + 1);
+            target.putInt(base + 2);
+            if (quads) {
+                target.putInt(base + 2);
+                target.putInt(base + 3);
+                target.putInt(base);
+            }
+        }
+        target.position(Math.multiplyExact(words, 4));
     }
 
     private static void position(ByteBuffer target, int offset, float[] positions, int vertex) {

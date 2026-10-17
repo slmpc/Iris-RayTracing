@@ -79,6 +79,7 @@ vec3 origin = luminrtSceneOrigin(cameraPositionInt, cameraPositionFract);
 ## 更新与生命周期
 
 - 记录按范围增量维护：编辑或动态内容变化只重写该 geometry 的记录范围，不重建整表。
+- 记录缓冲同时是 BLAS 的顶点输入（步长 112 B）；索引使用一张全局共享的 `0-1-2` / `2-3-0` pattern，不逐网格生成。
 - 目录在场景变化时重建；记录范围在引用它的旧目录完成 GPU 使用后才释放。
 - 记录缓冲可能扩容搬移；不要跨帧缓存记录偏移、设备地址或目录指针，每次从当前绑定的 SSBO 读取。
 - 目录与记录都可能在帧间替换；shader 只应使用当帧绑定。

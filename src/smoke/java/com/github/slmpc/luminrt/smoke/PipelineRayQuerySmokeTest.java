@@ -30,7 +30,7 @@ final class PipelineRayQuerySmokeTest {
         Object key = new Object();
         var mesh = new com.github.slmpc.luminrt.scene.TriangleMesh(new float[]{0,0,0, 1,0,0, 0,1,0},
                 new int[]{0,1,2}, new float[]{0,0, 1,0, 0,1}, true);
-        String helper = java.nio.file.Files.readString(java.nio.file.Path.of("../../docs/examples/ray-query/shaders/lib/luminrt_scene_uv.glsl"));
+        String helper = java.nio.file.Files.readString(java.nio.file.Path.of("../../docs/examples/ray-query/shaders/lib/luminrt_scene_geometry.glsl"));
         String source = """
             #version 460
             #extension GL_EXT_ray_query : require
@@ -57,7 +57,7 @@ final class PipelineRayQuerySmokeTest {
             com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,
                 new com.github.slmpc.luminrt.scene.TerrainGeometry(0, List.of(mesh)),
                 com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
-            com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+            frame();
             var definitions = new Int2ObjectArrayMap<BuiltShaderStorageInfo>();
             definitions.put(0, new BuiltShaderStorageInfo(16, false, 1, 1, null));
             try (var pack = new PackSamplers(); var output = new ShaderStorageBufferHolder(definitions, 1,1)) {
@@ -74,14 +74,14 @@ final class PipelineRayQuerySmokeTest {
                     com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,
                         new com.github.slmpc.luminrt.scene.TerrainGeometry(0,List.of(changed)),
                         com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
-                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+                    frame();
                     dispatch(pipeline);
                     require(read(output.getBuffer(0).buffer()) == 250625, "UV replacement must invalidate descriptor reuse");
                     dispatch(pipeline);
                     require(read(output.getBuffer(0).buffer()) == 250625, "Cached UV descriptors must preserve values");
                     com.github.slmpc.luminrt.scene.WorldAccelerationStructures.terrainChanged(key,null,
                         com.github.slmpc.luminrt.scene.WorldAccelerationStructures.epoch());
-                    com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+                    frame();
                     dispatch(pipeline);
                     require(read(output.getBuffer(0).buffer()) == 0, "Empty scene UV table must remain valid");
                     com.github.slmpc.luminrt.LuminRT.LOGGER.info("LUMINRT_UV_SMOKE_PASSED");
@@ -91,6 +91,13 @@ final class PipelineRayQuerySmokeTest {
             com.github.slmpc.luminrt.scene.WorldAccelerationStructures.reset(true);
             config.setExtensionEnabled(enabled);
         }
+    }
+
+    /** 模拟一帧的场景发布：begin 只兜底构建，动态准备完成后提交唯一一次构建。 */
+    private static void frame() {
+        com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginFrame(net.minecraft.world.phys.Vec3.ZERO);
+        com.github.slmpc.luminrt.scene.WorldAccelerationStructures.beginDynamic();
+        com.github.slmpc.luminrt.scene.WorldAccelerationStructures.endDynamic();
     }
 
     private static final String RAY = """
