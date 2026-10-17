@@ -46,9 +46,12 @@ Iris 与当前 Minecraft 26.3 的参考源码在被 Git 忽略的 `references/` 
 
 开启拓展后自动收集地形及主世界 staged vertex 路径中的实体、方块实体、移动方块和粒子顶点，
 地形接入 Sodium 0.9.2 的实际区段上传路径，兼容默认压缩格式及 Iris 扩展格式。
-维护区段 BLAS、动态 BLAS 与相机相对 TLAS。光影声明 `uniform accelerationStructureEXT luminrt_Scene;`
-即可自动绑定场景；动态拓扑不变时 refit，区段和拓扑变化时重建，卸载与重载会释放旧资源。
-当前提供几何和 UV，可通过自动绑定的 `luminrt_SceneUV` SSBO 重建 ray query 命中点的纹理坐标。尚无材质/纹理标识和 alpha test，也不包含 shader 顶点位移。使用方式见 [UV 接口](docs/scene-uv.md)。
+维护区段 BLAS、动态 BLAS 与 anchor 相对 TLAS；同一帧的 BLAS 构建/更新合并提交。
+光影声明 `uniform accelerationStructureEXT luminrt_Scene;` 即可自动绑定场景；
+动态拓扑不变时原地重写记录并 refit，区段和拓扑变化时重建，卸载与重载会释放旧资源。
+当前提供几何、UV、tint、材质身份与 anchor，通过自动绑定的 `luminrt_SceneGeometry` 目录和
+`luminrt_SceneRecords` 记录读取；尚无纹理标识和 alpha test，也不包含 shader 顶点位移。
+使用方式见[场景几何接口](docs/scene-geometry.md)。
 
 ## 光影包适配
 

@@ -1,6 +1,6 @@
 # 光追场景性能改造计划
 
-> 状态：Phase 0–5 已实现；Phase 6 进行中
+> 状态：Phase 0–6 已实现；真实 GPU 光影 smoke 需在有 Vulkan/ray query 设备时复验
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
 > 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景几何接口](scene-geometry.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
@@ -296,6 +296,9 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 ---
 
 ### Phase 6：清理与验证（1–2 天）
+
+> 实现状态：已完成。旧 UV/材质/场景头表与 helper 已删除；`gradlew build`、
+> 全量单测与 smoke 源集编译通过。真实 GPU 的 ray query/验证层 smoke 仍需在目标设备上执行。
 
 - 删除废弃类与绑定：`SceneUVData`、`SceneMaterialData`，以及 `ProgramResourcesMixin`/`VulkanProgramResourcesMixin` 中的旧名称。
 - 文档：更新 `acceleration-structures.md`；`scene-uv.md` 重命名为 `scene-geometry.md`；同步示例 shader。

@@ -129,8 +129,9 @@ Sodium 地形支持 `RG32_UINT` 压缩位置的 quads；原版/动态路径支�
 动态采集可能包含同一路径的贴图覆盖层，不声明逐材质或物理表面的去重。
 
 每次动态准备会复制位置与索引；动态 BLAS 稳定拓扑时只上传位置。
-场景表、实例与场景头在同一次批量上传中提交；逐 BLAS 构建仍沿用保守屏障，
-未实现 prime-pt 的批量 scratch、局部实例上传、BLAS compaction 或每帧构建预算（见[性能改造计划](scene-performance-plan.md)）。
+目录与实例在同一次批量上传中提交；同一帧的 BLAS 构建/更新合并为一次多结构构建调用并复用单块 scratch，
+屏障按上传、构建与着色器读取阶段收窄。地形解码在 Sodium 构建线程完成，渲染线程只发布快照。
+尚未实现局部实例上传与 BLAS compaction（见[性能改造计划](scene-performance-plan.md)）。
 可通过 `WorldAccelerationStructures.statistics()` 查看驻留网格、BLAS/TLAS build/update 次数、
 anchor 重定位次数与各类写入字节数；
 通过 `WorldAccelerationStructures.terrainSectionCount()` 查看 Sodium 地形快照数量（不含动态实例）。

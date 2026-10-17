@@ -4,7 +4,6 @@ import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
@@ -58,7 +57,6 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] 
     @Override public int[] materialData() { return materialData.clone(); }
     @Override public int[] colors() { return colors.clone(); }
     @Override public int[] lightData() { return lightData.clone(); }
-    public boolean hasUVs() { return uvs.length != 0; }
 
     /** 内部打包读取，返回自持数组而非副本；调用方只读。 */
     float[] positionsArray() { return positions; }
@@ -87,9 +85,6 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] 
                 && Arrays.equals(colors, other.colors)
                 && Arrays.equals(lightData, other.lightData);
     }
-
-    void writePositions(ByteBuffer target) { target.asFloatBuffer().put(positions); }
-    void writeIndices(ByteBuffer target) { target.asIntBuffer().put(indices); }
 
     public static TriangleMesh copy(MeshData mesh, boolean opaque) {
         var state = mesh.drawState();
