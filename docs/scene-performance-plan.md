@@ -145,27 +145,26 @@
 
 ### Phase 2：统一几何记录 + 分段 arena（核心，3–5 天）
 
-> 实现状态：2.1–2.4 已完成。实际记录为 **112 B**（UV 用 f32 以支持 tiling 与图集精度），
-> 目录与记录拆成两个 SSBO，记录直接作为 BLAS 顶点输入并使用共享索引 pattern。
+> 实现状态：2.1–2.4 已完成。每条记录拆为 **64 B 位置块 + 48 B 着色块**（UV 用 f32 以支持平铺与图集精度），
+> 目录与记录拆成两个 SSBO；位置块直接作为 BLAS 顶点输入，索引共享同一 pattern。
 
 #### 2.1 QuadRecord 布局（已实现）
 
-每条 **112 B**（7 个 `uvec4`），16 B 对齐：
+每条 **112 B**，16 B 对齐：
 
 ```text
-struct QuadRecord {
-    float  p0x, p0y, p0z, pad;   //   0
-    float  p1x, p1y, p1z, pad;   //  16
-    float  p2x, p2y, p2z, pad;   //  32
-    float  p3x, p3y, p3z, pad;   //  48
-    float2 uv0; float2 uv1;      //  64
-    float2 uv2; float2 uv3;      //  80
-    uint   tint;                 //  96：RGBA8 顶点色
-    uint   material;             // 100：materialId 低 16 位，bit16 opaque
-    uint   pad0, pad1;           // 104
-};
+位置块（64 B，同时是 BLAS 顶点：4 × vec4，顶点步长 16）
+  p0.xyz + pad   // 0
+  p1.xyz + pad   // 16
+  p2.xyz + pad   // 32
+  p3.xyz + pad   // 48
+着色块（48 B，3 × uvec4）
+  uv0.xy uv1.xy  // 0
+  uv2.xy uv3.xy  // 16
+  tint, material, 0, 0 // 32：materialId 低 16 位，bit16 opaque
 ```
 
+- 位置块必须连续且顶点步长为 16，才能作为 BLAS 顶点输入；着色块单独按记录索引。
 - 位置保持 **section 局部**（−8..24），实例 transform 继续承担平移。
 - UV 使用 f32：UNORM16 无法表示 `> 1` 的平铺 UV，且图集边缘需要高于 f16 的精度。
 - 固定三角化 `(0,1,2)`、`(2,3,0)`；quad 用 `primitive >> 1` 定位记录、`primitive & 1` 选半面；三角形直接以 `primitive` 索引记录并复用末角。
@@ -233,7 +232,7 @@ uvec4 header = luminrt_geometry[0];              // version, I, G, anchorGenerat
 vec3  anchor = uintBitsToFloat(luminrt_geometry[1].xyz);
 uvec4 inst   = luminrt_geometry[2 + instanceIndex];
 uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
-// 记录地址 = geo.x 字节；每条 112 B，7 × uvec4
+// 位置块地址 = geo.w 字节；着色块地址 = geo.x 字节；每条记录分别 4/3 个 uvec4
 ```
 
 提供的函数（命名与旧 API 对齐，便于迁移）：

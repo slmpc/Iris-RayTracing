@@ -1,7 +1,7 @@
 #ifndef LUMINRT_SCENE_GEOMETRY_GLSL
 #define LUMINRT_SCENE_GEOMETRY_GLSL
 
-// 场景目录由 LuminRT 自动绑定；记录缓冲按范围增量更新。
+// 场景目录由 LuminRT 自动绑定；记录缓冲包含位置块与着色块，按范围增量更新。
 layout(std430) readonly buffer luminrt_SceneGeometry {
     uvec4 luminrt_geometry[];
 };
@@ -63,20 +63,25 @@ bool luminrtGetRecord(int instanceIndex, int geometryIndex, uint primitiveIndex,
     geometry = luminrt_geometry[geometryRecord];
     uint quad = (geometry.z & LUMINRT_FLAG_QUADS) != 0u ? primitiveIndex >> 1 : primitiveIndex;
     if (quad >= geometry.y) return false;
-    uint word = (geometry.x >> 4) + quad * 7u;
-    if (word + 6u >= uint(luminrt_records.length())) return false;
-    record.p0 = uintBitsToFloat(luminrt_records[word + 0u]);
-    record.p1 = uintBitsToFloat(luminrt_records[word + 1u]);
-    record.p2 = uintBitsToFloat(luminrt_records[word + 2u]);
-    record.p3 = uintBitsToFloat(luminrt_records[word + 3u]);
-    vec4 uv01 = uintBitsToFloat(luminrt_records[word + 4u]);
-    vec4 uv23 = uintBitsToFloat(luminrt_records[word + 5u]);
+    uint recordLength = uint(luminrt_records.length());
+    // 位置块：4 个 vec4（xyz + padding），同时是 BLAS 顶点输入。
+    uint positionWord = (geometry.w >> 4) + quad * 4u;
+    if (positionWord + 3u >= recordLength) return false;
+    record.p0 = uintBitsToFloat(luminrt_records[positionWord + 0u]);
+    record.p1 = uintBitsToFloat(luminrt_records[positionWord + 1u]);
+    record.p2 = uintBitsToFloat(luminrt_records[positionWord + 2u]);
+    record.p3 = uintBitsToFloat(luminrt_records[positionWord + 3u]);
+    // 着色块：3 个 uvec4（uv0/uv1、uv2/uv3、tint+material）。
+    uint shadingWord = (geometry.x >> 4) + quad * 3u;
+    if (shadingWord + 2u >= recordLength) return false;
+    vec4 uv01 = uintBitsToFloat(luminrt_records[shadingWord + 0u]);
+    vec4 uv23 = uintBitsToFloat(luminrt_records[shadingWord + 1u]);
     record.uv0 = uv01.xy;
     record.uv1 = uv01.zw;
     record.uv2 = uv23.xy;
     record.uv3 = uv23.zw;
-    record.tint = luminrt_records[word + 6u].x;
-    record.material = luminrt_records[word + 6u].y;
+    record.tint = luminrt_records[shadingWord + 2u].x;
+    record.material = luminrt_records[shadingWord + 2u].y;
     return true;
 }
 

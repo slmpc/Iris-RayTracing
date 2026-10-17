@@ -48,20 +48,30 @@ bool hasPosition = hit.found && luminrtGetHitPosition(hit.instanceIndex, hit.geo
 | 0：header | 版本 1 | anchor 代数 | 实例数 I | geometry 总数 G |
 | 1：anchor | anchor.x | anchor.y | anchor.z | 0 |
 | 2 到 2+I-1：实例 | geometry 基址 | geometry 数 | 0 | 0 |
-| 2+I 到 2+I+G-1：geometry | 记录字节偏移 | 记录数 | flags | 0 |
+| 2+I 到 2+I+G-1：geometry | 着色块字节偏移 | 记录数 | flags | 位置块字节偏移 |
 
 - flags 的 bit0 表示四边形拓扑，bit1 表示 opaque。
 - 实例的 `geometry 基址` 是 geometry 目录内的下标（从 0 开始），不是全局记录号。
 - 空场景仍提供有效的 32 字节 header 与 anchor 记录。
 
-## 记录格式（112 B = 7 个 uvec4）
+## 记录格式（每条 112 B：位置块 64 B + 着色块 48 B）
+
+位置块同时是 BLAS 的顶点输入（每个角 16 B，步长 16）：
 
 | 字 | 内容 |
 | --- | --- |
-| 0–3 | 4 个角的位置 `xyz` + padding（float 位模式） |
-| 4 | uv0.x uv0.y uv1.x uv1.y |
-| 5 | uv2.x uv2.y uv3.x uv3.y |
-| 6 | tint（RGBA8）、material（低 16 位材质身份，bit16 opaque） |
+| 0 | p0.xyz + padding |
+| 1 | p1.xyz + padding |
+| 2 | p2.xyz + padding |
+| 3 | p3.xyz + padding |
+
+着色块（每条记录 3 个 uvec4）：
+
+| 字 | 内容 |
+| --- | --- |
+| 0 | uv0.x uv0.y uv1.x uv1.y |
+| 1 | uv2.x uv2.y uv3.x uv3.y |
+| 2 | tint（RGBA8）、material（低 16 位材质身份，bit16 opaque）、0、0 |
 
 四边形每两个三角形一条记录，固定 `0-1-2`、`2-3-0` 三角化；独立三角形复用末角作为第四角。UV 插值：
 

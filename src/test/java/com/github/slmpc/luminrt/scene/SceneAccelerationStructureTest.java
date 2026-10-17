@@ -81,8 +81,8 @@ class SceneAccelerationStructureTest {
             scene.build(0, 0, 0);
             assertSame(original, tlas.references.getFirst());
             assertEquals(1, original.updates);
-            var vertexInput = (TestBuffer)((AccelerationGeometry.Triangles)original.description.geometries().getFirst()).vertices();
-            assertEquals(3, vertexInput.data.getFloat(0));
+            var vertexInput = (AccelerationGeometry.Triangles)original.description.geometries().getFirst();
+            assertEquals(3, ((TestBuffer)vertexInput.vertices()).data.getFloat((int)vertexInput.vertexOffset()));
             assertEquals(1, scene.statistics().tlasUpdates());
             var changed = new TriangleMesh(triangle(3).positions(), new int[]{0, 2, 1}, true);
             scene.put("entity", List.of(changed), 0, 0, 0, true);
@@ -162,15 +162,20 @@ class SceneAccelerationStructureTest {
             // 实例目录：geometry 从第 2 条开始，共 1 条。
             assertEquals(0, directory.data.getInt(2 * 16));
             assertEquals(1, directory.data.getInt(2 * 16 + 4));
-            // geometry 目录：记录偏移、记录数、标志。
+            // geometry 目录：着色偏移、记录数、标志、位置偏移。
             int entry = 2 + 1;
-            int offset = directory.data.getInt(entry * 16);
+            int shadingOffset = directory.data.getInt(entry * 16);
+            int positionOffset = directory.data.getInt(entry * 16 + 12);
             assertEquals(1, directory.data.getInt(entry * 16 + 4));
             assertEquals(0, directory.data.getInt(entry * 16 + 8) & SceneGeometryDirectory.FLAG_QUADS);
+            assertEquals(0, shadingOffset);
+            assertEquals(SceneRecordData.SHADING_STRIDE, positionOffset);
             var records = (TestBuffer)scene.recordsBuffer();
-            assertEquals(0f, records.data.getFloat(offset), 0f);
+            assertEquals(0f, records.data.getFloat(positionOffset), 0f);
+            assertEquals(0f, records.data.getFloat(shadingOffset), 0f);
             assertTrue(scene.statistics().directoryBytes() >= SceneGeometryDirectory.byteSize(1, 1));
-            assertTrue(scene.statistics().recordBytes() >= SceneRecordData.STRIDE);
+            assertTrue(scene.statistics().recordBytes()
+                    >= SceneRecordData.SHADING_STRIDE + SceneRecordData.POSITION_STRIDE);
             // 重定位后新的目录缓冲区携带新 anchor 与代数。
             scene.build(10 + 300, 0, 0);
             var updated = (TestBuffer)scene.directoryBuffer();
@@ -210,11 +215,11 @@ class SceneAccelerationStructureTest {
                     new float[]{0, 0, 1, 0, 0, 1}, true);
             scene.put("dynamic", List.of(mesh), 0, 0, 0, true);
             scene.build(0, 0, 0);
-            int first = recordOffset(scene);
+            int first = positionOffset(scene);
             var moved = new TriangleMesh(triangle(1).positions(), mesh.indices(), mesh.uvs(), true);
             scene.put("dynamic", List.of(moved), 0, 0, 0, true);
             scene.build(0, 0, 0);
-            int second = recordOffset(scene);
+            int second = positionOffset(scene);
             // 位置变化原地重写记录，地址保持不变并 refit。
             assertEquals(first, second);
             assertEquals(1f, ((TestBuffer)scene.recordsBuffer()).data.getFloat(second), 0f);
@@ -222,7 +227,7 @@ class SceneAccelerationStructureTest {
             int batches = backend.uploadBatches;
             scene.put("dynamic", List.of(moved), 0, 0, 0, true);
             scene.build(0, 0, 0);
-            assertEquals(second, recordOffset(scene));
+            assertEquals(second, positionOffset(scene));
             assertEquals(batches + 1, backend.uploadBatches);
         }
         assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
@@ -238,7 +243,7 @@ class SceneAccelerationStructureTest {
             var a = (AccelerationGeometry.Triangles)((TestStructure)tlas.references.get(0)).description.geometries().getFirst();
             var b = (AccelerationGeometry.Triangles)((TestStructure)tlas.references.get(1)).description.geometries().getFirst();
             assertSame(scene.recordsBuffer(), a.vertices());
-            assertEquals(SceneRecordData.STRIDE, a.vertexStride());
+            assertEquals(SceneRecordData.VERTEX_STRIDE, a.vertexStride());
             assertEquals(SceneRecordData.VERTICES_PER_RECORD, a.vertexCount());
             assertEquals(1, a.primitiveCount());
             assertEquals(AccelerationGeometry.IndexType.UINT32, a.indexType());
@@ -269,11 +274,11 @@ class SceneAccelerationStructureTest {
         }
     }
 
-    /** 读取唯一实例中第 {@code geometryIndex} 个 geometry 的记录起始偏移。 */
-    private static int recordOffset(SceneAccelerationStructure scene) {
+    /** 读取唯一实例中第 {@code geometryIndex} 个 geometry 的位置块起始偏移。 */
+    private static int positionOffset(SceneAccelerationStructure scene) {
         var directory = ((TestBuffer)scene.directoryBuffer()).data;
         int instances = directory.getInt(8);
-        return directory.getInt((2 + instances) * 16);
+        return directory.getInt((2 + instances) * 16 + 12);
     }
 
     private static final class TestBackend implements AccelerationStructureBackend {

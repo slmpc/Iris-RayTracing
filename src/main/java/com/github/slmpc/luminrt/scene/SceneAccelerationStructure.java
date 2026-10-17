@@ -156,7 +156,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                     int flags = (mesh.quads() ? SceneGeometryDirectory.FLAG_QUADS : 0)
                             | (mesh.opaque() ? SceneGeometryDirectory.FLAG_OPAQUE : 0);
                     geometries.add(new SceneGeometryDirectory.Geometry(
-                            resource.recordOffsets.get(i), mesh.recordCount(), flags));
+                            resource.shadingOffsets.get(i), mesh.recordCount(), flags,
+                            resource.positionOffsets.get(i)));
                 }
                 instancesView.add(new SceneGeometryDirectory.Instance(base, resource.geometry.size()));
             }
@@ -297,12 +298,18 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         pendingBuilds.clear();
     }
 
-    private void retireRecords(MeshResource resource) {        for (int i = 0; i < resource.recordOffsets.size(); i++) {
-            int offset = resource.recordOffsets.get(i);
-            if (offset >= 0) pendingRecordFrees.add(new int[]{
-                    offset, resource.recordSizes.get(i), resource.recordGenerations.get(i)});
+    private void retireRecords(MeshResource resource) {
+        for (int i = 0; i < resource.shadingOffsets.size(); i++) {
+            addPendingFree(resource.shadingOffsets.get(i), resource.shadingSizes.get(i),
+                    resource.recordGenerations.get(i));
+            addPendingFree(resource.positionOffsets.get(i), resource.positionSizes.get(i),
+                    resource.recordGenerations.get(i));
         }
         resource.invalidateRecords();
+    }
+
+    private void addPendingFree(int offset, int bytes, int generation) {
+        if (offset >= 0) pendingRecordFrees.add(new int[]{offset, bytes, generation});
     }
 
     @Override public void close() {
@@ -331,8 +338,10 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
     private final class MeshResource implements AutoCloseable {
         private final List<TriangleMesh> topology;
-        private final List<Integer> recordOffsets = new ArrayList<>();
-        private final List<Integer> recordSizes = new ArrayList<>();
+        private final List<Integer> shadingOffsets = new ArrayList<>();
+        private final List<Integer> shadingSizes = new ArrayList<>();
+        private final List<Integer> positionOffsets = new ArrayList<>();
+        private final List<Integer> positionSizes = new ArrayList<>();
         private final List<Integer> recordGenerations = new ArrayList<>();
         private List<TriangleMesh> geometry;
         private final boolean dynamic;
@@ -362,7 +371,9 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             if (writeRecordsInPlace()) return;
             SceneAccelerationStructure.this.retireRecords(this);
             int total = 0;
-            for (var mesh : geometry) total = Math.addExact(total, SceneRecordData.byteSize(mesh));
+            for (var mesh : geometry)
+                total = Math.addExact(total, Math.addExact(SceneRecordData.shadingByteSize(mesh),
+                        SceneRecordData.positionByteSize(mesh)));
             int generation = records.generation();
             ensureRecordCapacity(total);
             // 扩容会重新打包全部范围（包括本资源）并重建 BLAS，此时不再重复写入。
@@ -371,52 +382,73 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         }
 
         private boolean writeRecordsInPlace() {
-            if (recordOffsets.size() != geometry.size()) return false;
+            if (shadingOffsets.size() != geometry.size()) return false;
             for (int i = 0; i < geometry.size(); i++) {
-                if (recordSizes.get(i) != SceneRecordData.byteSize(geometry.get(i))
+                if (shadingSizes.get(i) != SceneRecordData.shadingByteSize(geometry.get(i))
+                        || positionSizes.get(i) != SceneRecordData.positionByteSize(geometry.get(i))
                         || recordGenerations.get(i) != records.generation()) return false;
             }
-            for (int i = 0; i < geometry.size(); i++) uploadRecord(recordOffsets.get(i), geometry.get(i));
+            for (int i = 0; i < geometry.size(); i++)
+                uploadRecord(shadingOffsets.get(i), positionOffsets.get(i), geometry.get(i));
             return true;
         }
 
         private void writeRecords(SceneGeometryArena arena) {
-            int[] offsets = new int[geometry.size()];
-            int[] sizes = new int[geometry.size()];
+            int[] shading = new int[geometry.size()];
+            int[] shadingBytes = new int[geometry.size()];
+            int[] positions = new int[geometry.size()];
+            int[] positionBytes = new int[geometry.size()];
             int[] generations = new int[geometry.size()];
             for (int i = 0; i < geometry.size(); i++) {
                 var mesh = geometry.get(i);
-                int bytes = SceneRecordData.byteSize(mesh);
-                int offset = arena.allocate(bytes);
-                if (offset < 0) throw new IllegalStateException("记录缓冲无法容纳网格");
-                uploadRecord(offset, mesh);
-                offsets[i] = offset;
-                sizes[i] = bytes;
+                int shadings = SceneRecordData.shadingByteSize(mesh);
+                int positionSize = SceneRecordData.positionByteSize(mesh);
+                int shadingOffset = arena.allocate(shadings);
+                int positionOffset = arena.allocate(positionSize);
+                if (shadingOffset < 0 || positionOffset < 0) throw new IllegalStateException("记录缓冲无法容纳网格");
+                uploadRecord(shadingOffset, positionOffset, mesh);
+                shading[i] = shadingOffset;
+                shadingBytes[i] = shadings;
+                positions[i] = positionOffset;
+                positionBytes[i] = positionSize;
                 generations[i] = arena.generation();
             }
             for (int i = 0; i < geometry.size(); i++) {
-                recordOffsets.add(offsets[i]);
-                recordSizes.add(sizes[i]);
+                shadingOffsets.add(shading[i]);
+                shadingSizes.add(shadingBytes[i]);
+                positionOffsets.add(positions[i]);
+                positionSizes.add(positionBytes[i]);
                 recordGenerations.add(generations[i]);
             }
         }
 
-        private void uploadRecord(int offset, TriangleMesh mesh) {
-            int bytes = SceneRecordData.byteSize(mesh);
-            var packed = MemoryUtil.memAlloc(bytes).order(ByteOrder.nativeOrder());
+        private void uploadRecord(int shadingOffset, int positionOffset, TriangleMesh mesh) {
+            int shadings = SceneRecordData.shadingByteSize(mesh);
+            var packedShading = MemoryUtil.memAlloc(shadings).order(ByteOrder.nativeOrder());
             try {
-                SceneRecordData.write(packed, mesh);
-                packed.flip();
-                records.buffer().upload(offset, packed);
+                SceneRecordData.writeShading(packedShading, mesh);
+                packedShading.flip();
+                records.buffer().upload(shadingOffset, packedShading);
             } finally {
-                MemoryUtil.memFree(packed);
+                MemoryUtil.memFree(packedShading);
             }
-            recordBytes += bytes;
+            int positions = SceneRecordData.positionByteSize(mesh);
+            var packedPositions = MemoryUtil.memAlloc(positions).order(ByteOrder.nativeOrder());
+            try {
+                SceneRecordData.writePositions(packedPositions, mesh);
+                packedPositions.flip();
+                records.buffer().upload(positionOffset, packedPositions);
+            } finally {
+                MemoryUtil.memFree(packedPositions);
+            }
+            recordBytes += (long) shadings + positions;
         }
 
         private void invalidateRecords() {
-            recordOffsets.clear();
-            recordSizes.clear();
+            shadingOffsets.clear();
+            shadingSizes.clear();
+            positionOffsets.clear();
+            positionSizes.clear();
             recordGenerations.clear();
         }
 
@@ -428,8 +460,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                 var indices = mesh.quads() ? quadIndices : triangleIndices;
                 if (indices == null) throw new IllegalStateException("共享索引尚未准备");
                 int primitives = mesh.quads() ? Math.multiplyExact(count, 2) : count;
-                descriptions.add(new AccelerationGeometry.Triangles(records.buffer(), recordOffsets.get(i),
-                        Math.multiplyExact(count, SceneRecordData.VERTICES_PER_RECORD), SceneRecordData.STRIDE,
+                descriptions.add(new AccelerationGeometry.Triangles(records.buffer(), positionOffsets.get(i),
+                        Math.multiplyExact(count, SceneRecordData.VERTICES_PER_RECORD), SceneRecordData.VERTEX_STRIDE,
                         indices, 0, AccelerationGeometry.IndexType.UINT32, primitives, mesh.opaque()));
             }
             blas = backend.create(new AccelerationStructureDescription(AccelerationStructure.Type.BOTTOM_LEVEL,
@@ -439,7 +471,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         }
 
         private void rebuildBlas() {
-            if (closed || recordOffsets.size() != geometry.size()) return;
+            if (closed || shadingOffsets.size() != geometry.size()) return;
             if (blas != null) blas.close();
             buildBlas();
         }

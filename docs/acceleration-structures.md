@@ -83,7 +83,7 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
 计算（整数部分先相减再叠加小数，远坐标下仍精确），命中世界坐标为 `anchor + origin + t*dir`。
 依赖世界坐标的光影包缓存（历史、辐照度、时序重投影）必须在 `anchorGeneration` 变化时失效。
 实例平移先在 CPU 用 double 相减，再转为 float，避免直接把远距离世界坐标写入 BLAS。
-`luminrt_SceneGeometry`（目录）与 `luminrt_SceneRecords`（112 B/quad 记录）自动绑定：
+`luminrt_SceneGeometry`（目录）与 `luminrt_SceneRecords`（每条 112 B：64 B 位置块 + 48 B 着色块）自动绑定：
 目录 header 为 `uvec4(version, anchorGeneration, instanceCount, geometryCount)`，随后是 `ivec4(anchor.xyz, 0)`、
 实例目录和 geometry 目录；记录按范围增量更新，旧范围在旧目录完成 GPU 使用后释放。未声明这两个块的旧光影包在相机离开 anchor 后会出现位置偏移。
 
@@ -95,7 +95,8 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
   不发布取消、过期或未被上传的构建结果；纯 `ChunkSortOutput` 不替换快照。
   原版采集入口仍在 `SectionCompiler.compile` 复制 `MeshData`，并随 `CompiledSectionMesh` 发布。
   每个区段一个 BLAS，solid/cutout/translucent 各为独立 geometry；未变化的区段不重新上传或构建。
-  BLAS 直接以 112 B 记录范围为顶点输入，索引复用一张全局共享 pattern，不再逐区段生成索引。
+  BLAS 直接以 64 B 位置块为顶点输入（顶点步长 16），着色块与 UV/tint/材质单独读取；
+  索引复用一张全局共享 pattern，不再逐区段生成索引。
   区段重编译替换 BLAS；透明排序仅修改光栅索引，不触发 AS 重建。
   Sodium 的 `RenderSection.delete` 删除旧快照与实例；世界重置清空注册。
   开启拓展时主动请求区段重编译，即使 Iris 的格式未变化，也能补齐此前已加载的区段。

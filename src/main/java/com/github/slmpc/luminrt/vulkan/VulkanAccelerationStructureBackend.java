@@ -294,7 +294,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     void uploadBarrierBefore(VkCommandBuffer command, MemoryStack stack) {
         barrier(command, stack,
                 VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
-                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
                 VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR
                         | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
                 VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR, VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR);
@@ -305,7 +305,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         barrier(command, stack,
                 VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR, VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
                 VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
-                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
                 VK_ACCESS_2_SHADER_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
     }
 
@@ -313,7 +313,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
     void buildBarrierBefore(VkCommandBuffer command, MemoryStack stack) {
         barrier(command, stack,
                 VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT_KHR | VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR
-                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                        | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
                 VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR
                         | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
                 VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
@@ -325,8 +325,7 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
         barrier(command, stack,
                 VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
                 VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
-                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR
-                        | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
                 VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR);
     }
 

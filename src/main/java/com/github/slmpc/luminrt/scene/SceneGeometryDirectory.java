@@ -25,7 +25,7 @@ public final class SceneGeometryDirectory {
     public static final int FLAG_OPAQUE = 1 << 1;
 
     public record Instance(int geometryBase, int geometryCount) {}
-    public record Geometry(int recordOffset, int recordCount, int flags) {}
+    public record Geometry(int shadingOffset, int recordCount, int flags, int positionOffset) {}
 
     private SceneGeometryDirectory() {}
 
@@ -53,10 +53,10 @@ public final class SceneGeometryDirectory {
             target.putInt(0);
         }
         for (var geometry : geometries) {
-            target.putInt(geometry.recordOffset());
+            target.putInt(geometry.shadingOffset());
             target.putInt(geometry.recordCount());
             target.putInt(geometry.flags());
-            target.putInt(0);
+            target.putInt(geometry.positionOffset());
         }
     }
 }
