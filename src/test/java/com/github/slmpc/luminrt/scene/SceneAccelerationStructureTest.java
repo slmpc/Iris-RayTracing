@@ -223,6 +223,25 @@ class SceneAccelerationStructureTest {
         }
     }
 
+    @Test
+    void updateRequestAfterArenaRebuildKeepsBuildRequest() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend, 4096, 16)) {
+            var dynamic = new TriangleMesh(triangle(0).positions(), new int[]{0, 1, 2},
+                    new float[]{0, 0, 1, 0, 0, 1}, true);
+            scene.put("dyn", List.of(dynamic), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            // 大网格触发 arena 扩容，已注册的动态资源被重打包并重建 BLAS（排队 build）。
+            scene.put("small", List.of(triangle(0)), 0, 0, 0, false);
+            scene.put("big", List.of(quadMesh(64)), 0, 0, 0, false);
+            // 同帧再更新动态几何：不能把待执行的 build 降级为 update。
+            scene.put("dyn", List.of(new TriangleMesh(triangle(1).positions(), dynamic.indices(),
+                    dynamic.uvs(), true)), 0, 0, 0, true);
+            var tlas = (TestStructure)scene.build(0, 0, 0);
+            assertEquals(3, tlas.references.size());
+        }
+    }
+
     private static TriangleMesh quadMesh(int quads) {
         float[] positions = new float[Math.multiplyExact(quads, 12)];
         int[] indices = new int[Math.multiplyExact(quads, 6)];

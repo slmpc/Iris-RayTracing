@@ -288,8 +288,15 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     }
 
     private void requestBuild(AccelerationStructure structure, boolean update) {
-        // 同一结构在一帧内可能被多次重建；只保留最后一次请求。
-        discardPendingBuild(structure);
+        // build 覆盖 update；已有 build 时不得降级为 update（结构可能尚未构建）。
+        for (int i = 0; i < pendingBuilds.size(); i++) {
+            var existing = pendingBuilds.get(i);
+            if (existing.structure() != structure) continue;
+            if (!existing.update()) return;
+            if (update) return;
+            pendingBuilds.set(i, new AccelerationStructureBackend.Build(structure, false));
+            return;
+        }
         pendingBuilds.add(new AccelerationStructureBackend.Build(structure, update));
     }
 
