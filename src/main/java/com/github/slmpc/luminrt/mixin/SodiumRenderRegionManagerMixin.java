@@ -31,7 +31,7 @@ public abstract class SodiumRenderRegionManagerMixin {
                     var format = ((SodiumMeshAccess)mesh).luminrt$getVertexFormat();
                     if (format == null) throw new IllegalStateException("Missing Sodium terrain vertex format");
                     var copied = SodiumTerrainMesh.copy(mesh.getVertexData().getDirectBuffer(), format,
-                            !pass.isTranslucent() && !pass.supportsFragmentDiscard());
+                            !pass.isTranslucent());
                     if (copied != null) geometry.add(copied);
                 }
             }

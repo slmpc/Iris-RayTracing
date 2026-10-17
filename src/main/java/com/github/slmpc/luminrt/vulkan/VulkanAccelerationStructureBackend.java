@@ -2,11 +2,14 @@ package com.github.slmpc.luminrt.vulkan;
 
 import com.github.slmpc.luminrt.rhi.*;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
+import com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer;
 import net.irisshaders.iris.vulkan.VulkanCommandBridge;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
+import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -104,6 +107,31 @@ public final class VulkanAccelerationStructureBackend implements AccelerationStr
 
     @Override
     public void update(AccelerationStructure structure) { record(structure, true); }
+
+    @Override
+    public void upload(List<AccelerationStructureBackend.Upload> uploads) {
+        requireSupport();
+        if (uploads.isEmpty()) return;
+        var encoder = device.createCommandEncoder();
+        var command = VulkanCommandBridge.commandBuffer(encoder);
+        try (var stack = MemoryStack.stackPush()) {
+            barrier(command, stack);
+            for (var upload : uploads) {
+                if (!(upload.target() instanceof VulkanAccelerationStructureBuffer target) || target.owner != this) {
+                    throw new IllegalArgumentException("Upload target belongs to a different Vulkan backend");
+                }
+                target.deviceAddress();
+                target.validateUpload(upload.offset(), upload.data());
+                int bytes = upload.data().remaining();
+                if (bytes == 0) continue;
+                var staging = encoder.transientMemory().uploadStaging(upload.data(), 4L, GpuBuffer.USAGE_COPY_SRC);
+                var copy = VkBufferCopy.calloc(1, stack)
+                        .srcOffset(staging.offset()).dstOffset(upload.offset()).size(bytes);
+                vkCmdCopyBuffer(command, ((VulkanGpuBuffer) staging.buffer()).vkBuffer(), target.handle, copy);
+            }
+            barrier(command, stack);
+        }
+    }
 
     private void record(AccelerationStructure resource, boolean update) {
         requireSupport();

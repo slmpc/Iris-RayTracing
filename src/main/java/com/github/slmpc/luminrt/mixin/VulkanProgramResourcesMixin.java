@@ -29,6 +29,13 @@ public abstract class VulkanProgramResourcesMixin {
                     org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                     org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
         }
+        var material = bindings.buffers().get(com.github.slmpc.luminrt.scene.SceneMaterialData.SHADER_NAME);
+        if (material != null) for (var slice : material) {
+            cir.getReturnValue().add(new VulkanSynchronization.Access(new VulkanSynchronization.Resource(false,
+                    ((com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer)slice.buffer()).vkBuffer()),
+                    org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
+        }
         for (var values : ((ResolvedAccelerationStructures) (Object) bindings).accelerationStructures().values()) {
             for (var value : values) {
                 var tlas = AccelerationStructureDescriptors.validate(value, VulkanCommandBridge.getDevice().vkDevice());

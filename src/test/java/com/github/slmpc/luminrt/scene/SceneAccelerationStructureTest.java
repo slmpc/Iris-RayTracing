@@ -108,6 +108,17 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
+    void batchesSceneTablesAndInstanceUpload() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.put("terrain", List.of(triangle(0)), 0, 0, 0, false);
+            scene.build(0, 0, 0);
+            assertEquals(2, backend.uploadBatches);
+            assertEquals(3, backend.lastUploadCount);
+        }
+    }
+
+    @Test
     void failedReplacementReleasesNewResourcesAndCanBeRetried() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
@@ -166,6 +177,8 @@ class SceneAccelerationStructureTest {
         final List<TestBuffer> buffers = new ArrayList<>();
         final List<TestStructure> structures = new ArrayList<>();
         boolean failNextBuild;
+        int uploadBatches;
+        int lastUploadCount;
         public boolean isSupported() { return true; }
         public AccelerationStructureBuffer createInputBuffer(long size) {
             var buffer = new TestBuffer(size); buffers.add(buffer); return buffer;
@@ -181,6 +194,11 @@ class SceneAccelerationStructureTest {
         public void update(AccelerationStructure structure) {
             var value = (TestStructure)structure;
             assertTrue(value.built && value.description.allowUpdate() && !value.closed); value.updates++;
+        }
+        @Override public void upload(List<Upload> uploads) {
+            uploadBatches++;
+            lastUploadCount = uploads.size();
+            AccelerationStructureBackend.super.upload(uploads);
         }
     }
 

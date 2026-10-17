@@ -23,6 +23,15 @@ public final class SodiumTerrainMesh {
         if (count == 0) return null;
         var source = vertices.duplicate().order(ByteOrder.nativeOrder());
         float[] xyz = new float[Math.multiplyExact(count, 3)];
+        int[] colors = new int[count];
+        int[] lightData = new int[count];
+        int[] materialData = new int[count];
+        var color = format.getElement("a_Color");
+        if (color != null && color.format() != GpuFormat.RGBA8_UNORM) throw new IllegalArgumentException("Unsupported Sodium terrain color format");
+        var light = format.getElement("a_LightAndData");
+        if (light != null && light.format() != GpuFormat.RGBA8_UINT) throw new IllegalArgumentException("Unsupported Sodium terrain light format");
+        var material = format.getElement("mc_Entity");
+        if (material != null && material.format() != GpuFormat.R32_UINT) throw new IllegalArgumentException("Unsupported Sodium terrain material format");
         var uv = format.getElement("a_TexCoord");
         if (uv != null && (uv.format() != GpuFormat.RG16_UINT || uv.offset() < 0 || uv.offset() + 4 > stride))
             throw new IllegalArgumentException("Unsupported Sodium terrain UV format");
@@ -35,6 +44,9 @@ public final class SodiumTerrainMesh {
                 int quantized = ((high >>> shift & 1023) << 10) | (low >>> shift & 1023);
                 xyz[i * 3 + axis] = quantized * (32.0f / 1048576.0f) - 8.0f;
             }
+            colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * stride + color.offset());
+            lightData[i] = light == null ? 0 : source.getInt(source.position() + i * stride + light.offset());
+            materialData[i] = material == null ? 0 : source.getInt(source.position() + i * stride + material.offset());
             if (uv != null) {
                 int uvOffset = source.position() + i * stride + uv.offset();
                 // 对应 Sodium 的 _vert_tex_diffuse_coord；不包含最高位偏移方向及 mip 收缩修正。
@@ -42,6 +54,7 @@ public final class SodiumTerrainMesh {
                 texture[i * 2 + 1] = (source.getShort(uvOffset + 2) & 32767) / 32768.0f;
             }
         }
-        return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), texture, opaque);
+        return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), texture,
+                materialData, colors, lightData, opaque);
     }
 }

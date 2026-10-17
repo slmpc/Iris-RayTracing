@@ -105,6 +105,11 @@ public final class WorldAccelerationStructures {
         return scene.uvBuffer().shaderSlice();
     }
 
+    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentMaterial() {
+        current();
+        return scene.materialBuffer().shaderSlice();
+    }
+
     private static boolean ensureScene() {
         if (!LuminRT.getConfig().isExtensionEnabled()) {
             reset(false);

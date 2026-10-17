@@ -14,7 +14,9 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     private AccelerationStructure tlas;
     private AccelerationStructureBuffer instances;
     private AccelerationStructureBuffer uvData;
+    private AccelerationStructureBuffer materialData;
     private boolean uvDirty = true;
+    private boolean materialDirty = true;
     private int instanceCount = -1;
     private boolean dirty = true;
     private boolean structural = true;
@@ -37,15 +39,17 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         dirty = true;
         if (dynamic && previous != null && previous.dynamic && previous.sameTopology(geometry)) {
             // 仅位置或实例原点改变时复用 UV 表，避免每帧重传整个地形的 UV。
-            for (int i = 0; i < geometry.size(); i++)
+            for (int i = 0; i < geometry.size(); i++) {
                 uvDirty |= !previous.geometry.get(i).sameUVs(geometry.get(i));
+                materialDirty |= !previous.geometry.get(i).sameMaterials(geometry.get(i));
+            }
             previous.upload(geometry, false);
             backend.update(previous.blas);
             previous.x = x; previous.y = y; previous.z = z;
             blasUpdates++;
         } else {
             var next = new MeshResource(geometry, x, y, z, dynamic);
-            uvDirty = true;
+            uvDirty = materialDirty = true;
             meshes.put(key, next);
             if (previous != null) retired.add(previous);
             blasBuilds++;
@@ -55,7 +59,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
     public void remove(Object key) {
         var old = meshes.remove(key);
-        if (old != null) { retired.add(old); dirty = structural = uvDirty = true; }
+        if (old != null) { retired.add(old); dirty = structural = uvDirty = materialDirty = true; }
     }
 
     public AccelerationStructure build(double x, double y, double z) {
@@ -68,15 +72,26 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         AccelerationStructureBuffer nextInstances = instances;
         boolean replace = tlas == null || instanceCount != count;
         AccelerationStructureBuffer nextUV = uvData;
+        AccelerationStructureBuffer nextMaterial = materialData;
+        var uploads = new ArrayList<AccelerationStructureBackend.Upload>();
+        var uploadData = new ArrayList<java.nio.ByteBuffer>();
         try {
             if (uvDirty) {
                 var geometry = meshes.values().stream().map(resource -> resource.geometry).toList();
-                var packed = MemoryUtil.memCalloc(SceneUVData.byteSize(geometry)).order(ByteOrder.nativeOrder());
-                try {
-                    SceneUVData.write(packed, geometry); packed.flip();
-                    nextUV = backend.createInputBuffer(packed.remaining());
-                    nextUV.upload(0, packed);
-                } finally { MemoryUtil.memFree(packed); }
+                var packed = MemoryUtil.memAlloc(SceneUVData.byteSize(geometry)).order(ByteOrder.nativeOrder());
+                SceneUVData.write(packed, geometry); packed.flip();
+                nextUV = backend.createInputBuffer(packed.remaining());
+                uploads.add(new AccelerationStructureBackend.Upload(nextUV, 0, packed));
+                uploadData.add(packed);
+            }
+            if (materialDirty) {
+                var geometry = meshes.values().stream().map(resource -> resource.geometry).toList();
+                var packed = MemoryUtil.memAlloc(SceneMaterialData.byteSize(geometry)).order(ByteOrder.nativeOrder());
+                var dynamicInstances = meshes.values().stream().map(resource -> resource.dynamic).toList();
+                SceneMaterialData.write(packed, geometry, dynamicInstances); packed.flip();
+                nextMaterial = backend.createInputBuffer(packed.remaining());
+                uploads.add(new AccelerationStructureBackend.Upload(nextMaterial, 0, packed));
+                uploadData.add(packed);
             }
             int index = 0;
             for (var resource : meshes.values()) {
@@ -95,7 +110,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                 nextTlas = backend.create(new AccelerationStructureDescription(AccelerationStructure.Type.TOP_LEVEL,
                         List.of(new AccelerationGeometry.Instances(nextInstances, 0, count)), true, false));
             }
-            nextInstances.upload(0, data);
+            uploads.add(new AccelerationStructureBackend.Upload(nextInstances, 0, data));
+            backend.upload(uploads);
             if (!replace && !structural && count != 0) { backend.update(nextTlas); tlasUpdates++; }
             else { backend.build(nextTlas); tlasBuilds++; }
             nextTlas.setReferencedStructures(meshes.values().stream().map(resource -> resource.blas).toList());
@@ -103,6 +119,11 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                 if (uvData != null) uvData.close();
                 uvData = nextUV;
                 uvDirty = false;
+            }
+            if (materialDirty) {
+                if (materialData != null) materialData.close();
+                materialData = nextMaterial;
+                materialDirty = false;
             }
             if (replace) {
                 if (tlas != null) tlas.close();
@@ -117,12 +138,16 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             return tlas;
         } catch (RuntimeException | Error failure) {
             if (nextUV != null && nextUV != uvData) nextUV.close();
+            if (nextMaterial != null && nextMaterial != materialData) nextMaterial.close();
             if (replace) {
                 if (nextTlas != null && nextTlas != tlas) nextTlas.close();
                 if (nextInstances != null && nextInstances != instances) nextInstances.close();
             }
             throw failure;
-        } finally { MemoryUtil.memFree(data); }
+        } finally {
+            uploadData.forEach(MemoryUtil::memFree);
+            MemoryUtil.memFree(data);
+        }
     }
 
     public AccelerationStructureBuffer uvBuffer() {
@@ -130,14 +155,21 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         return uvData;
     }
 
+    public AccelerationStructureBuffer materialBuffer() {
+        if (materialData == null) throw new IllegalStateException("材质表尚未构建");
+        return materialData;
+    }
+
     @Override public void close() {
         if (tlas != null) tlas.close();
         if (instances != null) instances.close();
         if (uvData != null) uvData.close();
+        if (materialData != null) materialData.close();
         meshes.values().forEach(MeshResource::close);
         retired.forEach(MeshResource::close);
         meshes.clear(); retired.clear();
-        tlas = null; instances = uvData = null; instanceCount = -1; dirty = structural = uvDirty = true;
+        tlas = null; instances = uvData = materialData = null; instanceCount = -1;
+        dirty = structural = uvDirty = materialDirty = true;
     }
 
     private final class MeshResource implements AutoCloseable {
@@ -172,18 +204,27 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         }
 
         private void upload(List<TriangleMesh> geometry, boolean includeIndices) {
-            for (int i = 0; i < geometry.size(); i++) {
-                var mesh = geometry.get(i);
-                var data = MemoryUtil.memAlloc(Math.multiplyExact(mesh.vertexCount(), 12)).order(ByteOrder.nativeOrder());
-                try { mesh.writePositions(data); vertices.get(i).upload(0, data); }
-                finally { MemoryUtil.memFree(data); }
-                if (includeIndices) {
-                    data = MemoryUtil.memAlloc(Math.multiplyExact(mesh.triangleCount(), 12)).order(ByteOrder.nativeOrder());
-                    try { mesh.writeIndices(data); indices.get(i).upload(0, data); }
-                    finally { MemoryUtil.memFree(data); }
+            var uploads = new ArrayList<AccelerationStructureBackend.Upload>(geometry.size() * (includeIndices ? 2 : 1));
+            var uploadData = new ArrayList<java.nio.ByteBuffer>(uploads.size());
+            try {
+                for (int i = 0; i < geometry.size(); i++) {
+                    var mesh = geometry.get(i);
+                    var positions = MemoryUtil.memAlloc(Math.multiplyExact(mesh.vertexCount(), 12)).order(ByteOrder.nativeOrder());
+                    mesh.writePositions(positions);
+                    uploads.add(new AccelerationStructureBackend.Upload(vertices.get(i), 0, positions));
+                    uploadData.add(positions);
+                    if (includeIndices) {
+                        var indexData = MemoryUtil.memAlloc(Math.multiplyExact(mesh.triangleCount(), 12)).order(ByteOrder.nativeOrder());
+                        mesh.writeIndices(indexData);
+                        uploads.add(new AccelerationStructureBackend.Upload(indices.get(i), 0, indexData));
+                        uploadData.add(indexData);
+                    }
                 }
+                backend.upload(uploads);
+                this.geometry = geometry;
+            } finally {
+                uploadData.forEach(MemoryUtil::memFree);
             }
-            this.geometry = geometry;
         }
 
         @Override public void close() {

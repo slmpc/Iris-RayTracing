@@ -1,9 +1,7 @@
 package com.github.slmpc.luminrt.vulkan;
 
 import com.github.slmpc.luminrt.rhi.AccelerationStructureBuffer;
-import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer;
-import net.irisshaders.iris.vulkan.VulkanCommandBridge;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 import org.lwjgl.util.vma.VmaAllocationCreateInfo;
@@ -81,20 +79,14 @@ final class VulkanAccelerationStructureBuffer implements AccelerationStructureBu
     @Override
     public void upload(long offset, ByteBuffer data) {
         deviceAddress();
+        owner.upload(java.util.List.of(new com.github.slmpc.luminrt.rhi.AccelerationStructureBackend.Upload(this, offset, data)));
+    }
+
+    void validateUpload(long offset, ByteBuffer data) {
         if (!data.isDirect()) throw new IllegalArgumentException("Upload data must be a direct ByteBuffer");
         int bytes = data.remaining();
         if (offset < 0 || (offset & 3) != 0 || (bytes & 3) != 0 || offset > size - bytes) {
             throw new IllegalArgumentException("Invalid upload range/alignment");
-        }
-        if (bytes == 0) return;
-        // 先获取命令缓冲区，在分配暂存内存前拒绝渲染通道内的上传操作。
-        var command = VulkanCommandBridge.commandBuffer(owner.device.createCommandEncoder());
-        try (var stack = MemoryStack.stackPush();
-             GpuBuffer staging = owner.device.createBuffer(() -> "LuminRT AS upload", GpuBuffer.USAGE_COPY_SRC, data)) {
-            owner.barrier(command, stack);
-            var copy = VkBufferCopy.calloc(1, stack).srcOffset(0).dstOffset(offset).size(bytes);
-            vkCmdCopyBuffer(command, ((VulkanGpuBuffer) staging).vkBuffer(), handle, copy);
-            owner.barrier(command, stack);
         }
     }
 

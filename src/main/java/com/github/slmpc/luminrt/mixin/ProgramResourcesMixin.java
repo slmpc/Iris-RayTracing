@@ -4,6 +4,7 @@ import com.github.slmpc.luminrt.rhi.*;
 import com.github.slmpc.luminrt.vulkan.AccelerationStructureDescriptors;
 import com.github.slmpc.luminrt.scene.WorldAccelerationStructures;
 import com.github.slmpc.luminrt.scene.SceneUVData;
+import com.github.slmpc.luminrt.scene.SceneMaterialData;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import net.irisshaders.iris.pipeline.transform.ShaderResourceLayout;
 import net.irisshaders.iris.samplers.PackSamplers;
@@ -20,6 +21,7 @@ public abstract class ProgramResourcesMixin implements AccelerationStructureBind
     @Shadow @Final private Map<String, ShaderResourceLayout.Descriptor> imageDeclarations;
     @Shadow @Final @Mutable private List<ShaderResourceLayout.Descriptor> storageDeclarations;
     @Unique private boolean luminrt$sceneUV;
+    @Unique private boolean luminrt$sceneMaterial;
     @Unique private final Map<String, ShaderResourceLayout.Descriptor> luminrt$declarations = new LinkedHashMap<>();
     @Unique private final Map<String, Supplier<List<AccelerationStructure>>> luminrt$bindings = new LinkedHashMap<>();
 
@@ -30,8 +32,13 @@ public abstract class ProgramResourcesMixin implements AccelerationStructureBind
                 if (descriptor.count() != 1) throw new IllegalArgumentException("luminrt_SceneUV must be a scalar storage block");
                 luminrt$sceneUV = true;
             }
+            if (SceneMaterialData.SHADER_NAME.equals(descriptor.name())) {
+                if (descriptor.count() != 1) throw new IllegalArgumentException("luminrt_SceneSurface must be a scalar storage block");
+                luminrt$sceneMaterial = true;
+            }
         }
-        storageDeclarations = storageDeclarations.stream().filter(d -> !SceneUVData.SHADER_NAME.equals(d.name())).toList();
+        storageDeclarations = storageDeclarations.stream().filter(d -> !SceneUVData.SHADER_NAME.equals(d.name())
+                && !SceneMaterialData.SHADER_NAME.equals(d.name())).toList();
         for (var descriptor : layout.descriptors()) {
             if (AccelerationStructureDescriptors.isAccelerationStructure(descriptor)) {
                 luminrt$declarations.put(descriptor.name(), descriptor);
@@ -46,6 +53,7 @@ public abstract class ProgramResourcesMixin implements AccelerationStructureBind
     @Inject(method = "getBufferBindings", at = @At("RETURN"))
     private void luminrt$bindUV(CallbackInfoReturnable<Map<String, List<GpuBufferSlice>>> cir) {
         if (luminrt$sceneUV) cir.getReturnValue().put(SceneUVData.SHADER_NAME, List.of(WorldAccelerationStructures.currentUV()));
+        if (luminrt$sceneMaterial) cir.getReturnValue().put(SceneMaterialData.SHADER_NAME, List.of(WorldAccelerationStructures.currentMaterial()));
     }
 
     @Override

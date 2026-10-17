@@ -17,8 +17,10 @@ public final class TerrainGeometryRegistry {
     public synchronized void publish(Object key, TerrainGeometry geometry, long sourceEpoch) {
         if (sourceEpoch != epoch) return;
         if (geometry != null && geometry.meshes().isEmpty()) geometry = null;
-        var previous = geometry == null ? resident.remove(key) : resident.put(key, geometry);
-        if (previous != geometry) pending.put(key, geometry);
+        var previous = resident.get(key);
+        if (geometry != null && previous != null && geometry.sameContent(previous)) return;
+        if (geometry == null) resident.remove(key); else resident.put(key, geometry);
+        pending.put(key, geometry);
     }
 
     public synchronized List<Change> drain() {

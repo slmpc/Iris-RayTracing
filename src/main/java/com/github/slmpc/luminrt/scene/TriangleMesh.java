@@ -9,23 +9,34 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /** 独立持有位置、三角形索引和可选 UV，不借用 Minecraft 的临时顶点内存。 */
-public record TriangleMesh(float[] positions, int[] indices, float[] uvs, boolean opaque) {
-    public TriangleMesh(float[] positions, int[] indices, boolean opaque) { this(positions, indices, new float[0], opaque); }
+public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] materialData, int[] colors, int[] lightData, boolean opaque) {
+    public TriangleMesh(float[] positions, int[] indices, boolean opaque) { this(positions, indices, new float[0], new int[0], new int[0], new int[0], opaque); }
+    public TriangleMesh(float[] positions, int[] indices, float[] uvs, boolean opaque) { this(positions, indices, uvs, new int[0], new int[0], new int[0], opaque); }
     public TriangleMesh {
         positions = positions.clone();
         indices = indices.clone();
         uvs = uvs.clone();
+        materialData = materialData.clone();
+        colors = colors.clone();
+        lightData = lightData.clone();
         if (positions.length == 0 || positions.length % 3 != 0 || indices.length == 0 || indices.length % 3 != 0)
             throw new IllegalArgumentException("Invalid triangle mesh");
         for (float value : positions) if (!Float.isFinite(value)) throw new IllegalArgumentException("Non-finite position");
         for (int index : indices) if (index < 0 || index >= positions.length / 3) throw new IllegalArgumentException("Invalid index");
         if (uvs.length != 0 && uvs.length != positions.length / 3 * 2) throw new IllegalArgumentException("Invalid UV count");
+        int vertices = positions.length / 3;
+        if (materialData.length != 0 && materialData.length != vertices) throw new IllegalArgumentException("Invalid material count");
+        if (colors.length != 0 && colors.length != vertices) throw new IllegalArgumentException("Invalid color count");
+        if (lightData.length != 0 && lightData.length != vertices) throw new IllegalArgumentException("Invalid light count");
         for (float value : uvs) if (!Float.isFinite(value)) throw new IllegalArgumentException("Non-finite UV");
     }
 
     @Override public float[] positions() { return positions.clone(); }
     @Override public int[] indices() { return indices.clone(); }
     @Override public float[] uvs() { return uvs.clone(); }
+    @Override public int[] materialData() { return materialData.clone(); }
+    @Override public int[] colors() { return colors.clone(); }
+    @Override public int[] lightData() { return lightData.clone(); }
     public boolean hasUVs() { return uvs.length != 0; }
 
     public int vertexCount() { return positions.length / 3; }
@@ -35,11 +46,44 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, boolea
         return opaque == other.opaque && positions.length == other.positions.length && Arrays.equals(indices, other.indices);
     }
 
+    boolean sameContent(TriangleMesh other) {
+        return opaque == other.opaque
+                && Arrays.equals(positions, other.positions)
+                && Arrays.equals(indices, other.indices)
+                && Arrays.equals(uvs, other.uvs)
+                && Arrays.equals(materialData, other.materialData)
+                && Arrays.equals(colors, other.colors)
+                && Arrays.equals(lightData, other.lightData);
+    }
+
     void writePositions(ByteBuffer target) { target.asFloatBuffer().put(positions); }
     void writeIndices(ByteBuffer target) { target.asIntBuffer().put(indices); }
 
     boolean sameUVs(TriangleMesh other) {
         return Arrays.equals(indices, other.indices) && Arrays.equals(uvs, other.uvs);
+    }
+
+    boolean sameMaterials(TriangleMesh other) {
+        return Arrays.equals(indices, other.indices) && Arrays.equals(materialData, other.materialData)
+                && Arrays.equals(colors, other.colors) && Arrays.equals(lightData, other.lightData);
+    }
+
+    void writeTriangleSurface(ByteBuffer target, boolean staticInstance) {
+        int[] triangleIndices = indices;
+        for (int triangle = 0; triangle < triangleCount(); triangle++) {
+            int first = triangleIndices[triangle * 3];
+            int materialId = materialData.length == 0 ? 0 : materialData[first];
+            int flags = opaque ? 1 : 0;
+            if (staticInstance) flags |= 2;
+            target.putInt(materialId).putInt(flags).putInt(Float.floatToIntBits(0.5f)).putInt(0);
+            for (int vertex = 0; vertex < 3; vertex++) {
+                int index = triangleIndices[triangle * 3 + vertex];
+                target.putInt(Float.floatToIntBits(positions[index * 3]));
+                target.putInt(Float.floatToIntBits(positions[index * 3 + 1]));
+                target.putInt(Float.floatToIntBits(positions[index * 3 + 2]));
+                target.putInt(0);
+            }
+        }
     }
 
     void writeTriangleUVs(ByteBuffer target) {
@@ -63,9 +107,15 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, boolea
         if (count < 3) return null;
         var source = mesh.vertexBuffer().duplicate().order(ByteOrder.nativeOrder());
         float[] xyz = new float[Math.multiplyExact(count, 3)];
+        int[] materialData = new int[count];
+        int[] colors = new int[count];
+        int[] lightData = new int[count];
         var uv = state.format().getElement("UV0");
         if (uv != null && uv.format() != GpuFormat.RG32_FLOAT) throw new IllegalArgumentException("Unsupported UV0 format");
         float[] texture = uv == null ? new float[0] : new float[Math.multiplyExact(count, 2)];
+        var color = state.format().getElement("Color");
+        var light = state.format().getElement("UV2");
+        var entity = state.format().getElement("mc_Entity");
         for (int i = 0; i < count; i++) {
             int offset = source.position() + i * state.format().getVertexSize() + position.offset();
             for (int axis = 0; axis < 3; axis++) xyz[i * 3 + axis] = source.getFloat(offset + axis * 4);
@@ -74,11 +124,15 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, boolea
                 texture[i * 2] = source.getFloat(uvOffset);
                 texture[i * 2 + 1] = source.getFloat(uvOffset + 4);
             }
+            colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * state.format().getVertexSize() + color.offset());
+            lightData[i] = light == null ? 0 : Short.toUnsignedInt(source.getShort(source.position() + i * state.format().getVertexSize() + light.offset()))
+                    | Short.toUnsignedInt(source.getShort(source.position() + i * state.format().getVertexSize() + light.offset() + 2)) << 16;
+            materialData[i] = entity == null ? 0 : source.getShort(source.position() + i * state.format().getVertexSize() + entity.offset());
         }
         // 四边形排序仅改变绘制顺序；AS 保持固定的 0-1-2、2-3-0 三角化。
         int[] indices = sequentialIndices(topology, count);
         if (indices.length == 0) return null;
-        return new TriangleMesh(xyz, indices, texture, opaque);
+        return new TriangleMesh(xyz, indices, texture, materialData, colors, lightData, opaque);
     }
 
     public static int[] sequentialIndices(PrimitiveTopology topology, int count) {
