@@ -15,6 +15,14 @@ public interface AccelerationStructure extends AutoCloseable {
         if (!structures.isEmpty()) throw new UnsupportedOperationException("Structure does not support references");
     }
 
+    /**
+     * 注册底层资源真正销毁时执行的动作（例如释放记录范围）。
+     * 默认实现立即执行，表示该实现没有可证明的 GPU 完成点。
+     */
+    default void onDestroy(Runnable action) {
+        action.run();
+    }
+
     @Override
     void close();
 }

@@ -23,6 +23,8 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     boolean built;
     private int descriptorReferences;
     private boolean destructionQueued;
+    private boolean destroyed;
+    private final List<Runnable> destroyActions = new java.util.ArrayList<>();
     private Set<VulkanAccelerationStructure> referencedStructures = Set.of();
 
     VulkanAccelerationStructure(VulkanAccelerationStructureBackend owner, AccelerationStructureDescription description,
@@ -86,6 +88,15 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
     @Override
     public boolean isClosed() { return closed; }
 
+    @Override
+    public void onDestroy(Runnable action) {
+        owner.checkThread();
+        java.util.Objects.requireNonNull(action);
+        if (destroyed) { action.run(); return; }
+        // 与 vkDestroy 在同一完成回调中执行，避免提前释放仍被 GPU 读取的记录范围。
+        destroyActions.add(action);
+    }
+
     void checkOpen() {
         owner.checkOpen();
         if (closed) throw new IllegalStateException("Acceleration structure is closed");
@@ -110,6 +121,9 @@ public final class VulkanAccelerationStructure implements AccelerationStructure 
                 storage.destroy();
                 referencedStructures.forEach(VulkanAccelerationStructure::releaseDescriptor);
                 referencedStructures = Set.of();
+                destroyed = true;
+                destroyActions.forEach(Runnable::run);
+                destroyActions.clear();
             });
         }
     }
