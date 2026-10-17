@@ -7,45 +7,52 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.*;
 
-/** 静态几何按键替换，动态几何仅在索引与布局不变时 refit；所有实例使用 anchor 相对坐标。 */
+/**
+ * 静态几何按键替换，动态几何仅在索引与布局不变时 refit；所有实例使用 anchor 相对坐标。
+ *
+ * <p>着色数据以 {@link SceneRecordData} 分段存放在 {@link SceneGeometryArena} 中，
+ * 目录只包含 header、实例与 geometry 索引；任何变化只重写变化的记录范围。
+ */
 public final class SceneAccelerationStructure implements AutoCloseable {
     /** 实例平移的参考原点；相机在重定位半径内移动不会重写实例或 TLAS。 */
     public record Anchor(double x, double y, double z) {}
 
     public record Statistics(int meshes, long blasBuilds, long blasUpdates, long tlasBuilds, long tlasUpdates,
-                             long anchorRebases, long instanceBytes, long uvBytes, long materialBytes,
-                             long headerBytes, long uploadBatches, long uploadCount) {}
+                             long anchorRebases, long instanceBytes, long directoryBytes, long recordBytes,
+                             long uploadBatches, long uploadCount, long arenaResident, long arenaCapacity) {}
 
     /** anchor 落在该整数网格上，避免相机轻微移动就重定位。 */
     private static final double ANCHOR_GRID = 64.0;
     /** 相机离 anchor 超过该距离时重定位并重写全部实例。 */
     private static final double REBASE_DISTANCE = 256.0;
+    /** 记录缓冲初始容量；不足时按倍数扩容并重新打包。 */
+    private static final int INITIAL_RECORD_BYTES = 4 << 20;
 
     private final AccelerationStructureBackend backend;
     private final Map<Object, MeshResource> meshes = new LinkedHashMap<>();
     private final List<MeshResource> retired = new ArrayList<>();
+    private final SceneGeometryArena records;
+    private final List<int[]> pendingRecordFrees = new ArrayList<>();
     private AccelerationStructure tlas;
     private AccelerationStructureBuffer instances;
-    private AccelerationStructureBuffer uvData;
-    private AccelerationStructureBuffer materialData;
-    private AccelerationStructureBuffer header;
+    private AccelerationStructureBuffer directory;
     private Anchor anchor;
     private long anchorGeneration;
-    private boolean uvDirty = true;
-    private boolean materialDirty = true;
     private int instanceCount = -1;
     private boolean dirty = true;
     private boolean structural = true;
     private long blasBuilds, blasUpdates, tlasBuilds, tlasUpdates, anchorRebases;
-    private long instanceBytes, uvBytes, materialBytes, headerBytes, uploadBatches, uploadCount;
+    private long instanceBytes, directoryBytes, recordBytes, uploadBatches, uploadCount;
 
     public SceneAccelerationStructure(AccelerationStructureBackend backend) {
         this.backend = Objects.requireNonNull(backend);
+        this.records = new SceneGeometryArena(backend, INITIAL_RECORD_BYTES);
     }
 
     public Statistics statistics() {
         return new Statistics(meshes.size(), blasBuilds, blasUpdates, tlasBuilds, tlasUpdates,
-                anchorRebases, instanceBytes, uvBytes, materialBytes, headerBytes, uploadBatches, uploadCount);
+                anchorRebases, instanceBytes, directoryBytes, recordBytes, uploadBatches, uploadCount,
+                records.resident(), records.capacity());
     }
 
     /** 已发布的 TLAS；尚未构建时返回 null，调用方不得在此触发构建。 */
@@ -58,6 +65,15 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
     public long anchorGeneration() { return anchorGeneration; }
 
+    public AccelerationStructureBuffer directoryBuffer() {
+        if (directory == null || directory.isClosed()) throw new IllegalStateException("场景目录尚未构建");
+        return directory;
+    }
+
+    public AccelerationStructureBuffer recordsBuffer() {
+        return records.buffer();
+    }
+
     public void put(Object key, List<TriangleMesh> geometry, double x, double y, double z, boolean dynamic) {
         Objects.requireNonNull(key);
         geometry = List.copyOf(geometry);
@@ -66,18 +82,17 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         var previous = meshes.get(key);
         dirty = true;
         if (dynamic && previous != null && previous.dynamic && previous.sameTopology(geometry)) {
-            // 仅位置或实例原点改变时复用 UV 表，避免每帧重传整个地形的 UV。
-            for (int i = 0; i < geometry.size(); i++) {
-                uvDirty |= !previous.geometry.get(i).sameUVs(geometry.get(i));
-                materialDirty |= !previous.geometry.get(i).sameMaterials(geometry.get(i));
-            }
+            // 拓扑未变时只 refit；只有内容（位置/UV/颜色/材质）变化才重新打包记录。
+            boolean changed = false;
+            for (int i = 0; i < geometry.size(); i++)
+                changed |= !previous.geometry.get(i).sameContent(geometry.get(i));
             previous.upload(geometry, false);
+            if (changed) previous.packRecords();
             backend.update(previous.blas);
             previous.x = x; previous.y = y; previous.z = z;
             blasUpdates++;
         } else {
             var next = new MeshResource(geometry, x, y, z, dynamic);
-            uvDirty = materialDirty = true;
             meshes.put(key, next);
             if (previous != null) retired.add(previous);
             blasBuilds++;
@@ -87,7 +102,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
     public void remove(Object key) {
         var old = meshes.remove(key);
-        if (old != null) { retired.add(old); dirty = structural = uvDirty = materialDirty = true; }
+        if (old != null) { retired.add(old); dirty = structural = true; }
     }
 
     public AccelerationStructure build(double x, double y, double z) {
@@ -111,38 +126,34 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         AccelerationStructure nextTlas = tlas;
         AccelerationStructureBuffer nextInstances = instances;
         boolean replace = tlas == null || instanceCount != count;
-        AccelerationStructureBuffer nextUV = uvData;
-        AccelerationStructureBuffer nextMaterial = materialData;
-        boolean writeUV = uvDirty;
-        boolean writeMaterial = materialDirty;
-        long writtenUV = 0, writtenMaterial = 0;
+        AccelerationStructureBuffer nextDirectory = null;
+        int directorySize = 0;
         var uploads = new ArrayList<AccelerationStructureBackend.Upload>();
         var uploadData = new ArrayList<ByteBuffer>();
         try {
-            if (writeUV) {
-                var geometry = meshes.values().stream().map(resource -> resource.geometry).toList();
-                var packed = MemoryUtil.memAlloc(SceneUVData.byteSize(geometry)).order(ByteOrder.nativeOrder());
-                SceneUVData.write(packed, geometry); packed.flip();
-                nextUV = backend.createInputBuffer(packed.remaining());
-                uploads.add(new AccelerationStructureBackend.Upload(nextUV, 0, packed));
-                uploadData.add(packed);
-                writtenUV = packed.remaining();
+            // 目录只含 header、实例与 geometry 索引；记录本体在 arena 中按范围增量维护。
+            var instancesView = new ArrayList<SceneGeometryDirectory.Instance>(count);
+            var geometries = new ArrayList<SceneGeometryDirectory.Geometry>();
+            for (var resource : meshes.values()) {
+                int base = geometries.size();
+                for (int i = 0; i < resource.geometry.size(); i++) {
+                    var mesh = resource.geometry.get(i);
+                    int flags = (mesh.quads() ? SceneGeometryDirectory.FLAG_QUADS : 0)
+                            | (mesh.opaque() ? SceneGeometryDirectory.FLAG_OPAQUE : 0);
+                    geometries.add(new SceneGeometryDirectory.Geometry(
+                            resource.recordOffsets.get(i), mesh.recordCount(), flags));
+                }
+                instancesView.add(new SceneGeometryDirectory.Instance(base, resource.geometry.size()));
             }
-            if (writeMaterial) {
-                var geometry = meshes.values().stream().map(resource -> resource.geometry).toList();
-                var packed = MemoryUtil.memAlloc(SceneMaterialData.byteSize(geometry)).order(ByteOrder.nativeOrder());
-                var dynamicInstances = meshes.values().stream().map(resource -> resource.dynamic).toList();
-                SceneMaterialData.write(packed, geometry, dynamicInstances); packed.flip();
-                nextMaterial = backend.createInputBuffer(packed.remaining());
-                uploads.add(new AccelerationStructureBackend.Upload(nextMaterial, 0, packed));
-                uploadData.add(packed);
-                writtenMaterial = packed.remaining();
-            }
-            if (header == null) header = backend.createInputBuffer(SceneHeaderData.SIZE);
-            var packedHeader = MemoryUtil.memAlloc(SceneHeaderData.SIZE).order(ByteOrder.nativeOrder());
-            SceneHeaderData.write(packedHeader, anchor, anchorGeneration, count); packedHeader.flip();
-            uploads.add(new AccelerationStructureBackend.Upload(header, 0, packedHeader));
-            uploadData.add(packedHeader);
+            directorySize = SceneGeometryDirectory.byteSize(count, geometries.size());
+            var packedDirectory = MemoryUtil.memAlloc(directorySize).order(ByteOrder.nativeOrder());
+            SceneGeometryDirectory.write(packedDirectory, (int) anchor.x(), (int) anchor.y(), (int) anchor.z(),
+                    anchorGeneration, instancesView, geometries);
+            packedDirectory.flip();
+            nextDirectory = backend.createInputBuffer(directorySize);
+            uploads.add(new AccelerationStructureBackend.Upload(nextDirectory, 0, packedDirectory));
+            uploadData.add(packedDirectory);
+
             int index = 0;
             for (var resource : meshes.values()) {
                 int offset = index * 64;
@@ -168,33 +179,33 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             if (!replace && !structural && count != 0) { backend.update(nextTlas); tlasUpdates++; }
             else { backend.build(nextTlas); tlasBuilds++; }
             nextTlas.setReferencedStructures(meshes.values().stream().map(resource -> resource.blas).toList());
-            if (writeUV) {
-                if (uvData != null) uvData.close();
-                uvData = nextUV;
-                uvDirty = false;
-                uvBytes += writtenUV;
-            }
-            if (writeMaterial) {
-                if (materialData != null) materialData.close();
-                materialData = nextMaterial;
-                materialDirty = false;
-                materialBytes += writtenMaterial;
-            }
             if (replace) {
                 if (tlas != null) tlas.close();
                 if (instances != null) instances.close();
                 tlas = nextTlas; instances = nextInstances; instanceCount = count;
             }
+            // 发布新目录；旧的记录范围在旧目录（及其使用的 GPU 工作）完成后释放。
+            var previousDirectory = directory;
+            directory = nextDirectory;
+            nextDirectory = null;
+            if (previousDirectory != null) {
+                var frees = List.copyOf(pendingRecordFrees);
+                pendingRecordFrees.clear();
+                previousDirectory.onDestroy(() -> frees.forEach(this::freeRecordRange));
+                previousDirectory.close();
+            } else {
+                pendingRecordFrees.forEach(this::freeRecordRange);
+                pendingRecordFrees.clear();
+            }
             // 新 TLAS 已持有当前 BLAS，旧 TLAS/已录制命令通过底层租约保护旧 BLAS。
             retired.forEach(MeshResource::close);
             retired.clear();
             instanceBytes += (long) count * 64;
-            headerBytes += SceneHeaderData.SIZE;
+            directoryBytes += directorySize;
             dirty = structural = false;
             return tlas;
         } catch (RuntimeException | Error failure) {
-            if (nextUV != null && nextUV != uvData) nextUV.close();
-            if (nextMaterial != null && nextMaterial != materialData) nextMaterial.close();
+            if (nextDirectory != null && nextDirectory != directory) nextDirectory.close();
             if (replace) {
                 if (nextTlas != null && nextTlas != tlas) nextTlas.close();
                 if (nextInstances != null && nextInstances != instances) nextInstances.close();
@@ -206,33 +217,48 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         }
     }
 
-    public AccelerationStructureBuffer uvBuffer() {
-        if (uvData == null || uvData.isClosed()) throw new IllegalStateException("Scene must be built before accessing UV data");
-        return uvData;
+    private void freeRecordRange(int[] range) {
+        records.free(range[0], range[1], range[2]);
     }
 
-    public AccelerationStructureBuffer materialBuffer() {
-        if (materialData == null) throw new IllegalStateException("材质表尚未构建");
-        return materialData;
+    /** 保证记录缓冲能容纳 {@code bytes} 字节；不足时扩容并重新打包全部范围。 */
+    private void ensureRecordCapacity(int bytes) {
+        int guard = 0;
+        while (!records.canAllocate(bytes)) {
+            if (++guard > 8) throw new IllegalStateException("记录缓冲无法扩容");
+            int capacity = Math.max(Math.multiplyExact(records.capacity(), 2),
+                    Math.addExact(records.resident(), Math.addExact(bytes, 1 << 20)));
+            records.reallocate(capacity);
+            repackAllRecords();
+        }
     }
 
-    public AccelerationStructureBuffer headerBuffer() {
-        if (header == null) throw new IllegalStateException("场景头尚未构建");
-        return header;
+    private void repackAllRecords() {
+        for (var resource : meshes.values()) resource.invalidateRecords();
+        for (var resource : meshes.values()) resource.writeRecords(records);
+    }
+
+    private void retireRecords(MeshResource resource) {
+        for (int i = 0; i < resource.recordOffsets.size(); i++) {
+            int offset = resource.recordOffsets.get(i);
+            if (offset >= 0) pendingRecordFrees.add(new int[]{
+                    offset, resource.recordSizes.get(i), resource.recordGenerations.get(i)});
+        }
+        resource.invalidateRecords();
     }
 
     @Override public void close() {
         if (tlas != null) tlas.close();
         if (instances != null) instances.close();
-        if (uvData != null) uvData.close();
-        if (materialData != null) materialData.close();
-        if (header != null) header.close();
+        if (directory != null) directory.close();
         meshes.values().forEach(MeshResource::close);
         retired.forEach(MeshResource::close);
         meshes.clear(); retired.clear();
-        tlas = null; instances = uvData = materialData = header = null; instanceCount = -1;
+        pendingRecordFrees.clear();
+        records.close();
+        tlas = null; instances = directory = null; instanceCount = -1;
         anchor = null; anchorGeneration = 0;
-        dirty = structural = uvDirty = materialDirty = true;
+        dirty = structural = true;
     }
 
     /** anchor 取整到固定网格，避免相机轻微移动造成频繁重写。 */
@@ -243,10 +269,14 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     private final class MeshResource implements AutoCloseable {
         private final List<AccelerationStructureBuffer> vertices = new ArrayList<>(), indices = new ArrayList<>();
         private final List<TriangleMesh> topology;
+        private final List<Integer> recordOffsets = new ArrayList<>();
+        private final List<Integer> recordSizes = new ArrayList<>();
+        private final List<Integer> recordGenerations = new ArrayList<>();
         private List<TriangleMesh> geometry;
         private final boolean dynamic;
         private AccelerationStructure blas;
         private double x, y, z;
+        private boolean closed;
 
         private MeshResource(List<TriangleMesh> geometry, double x, double y, double z, boolean dynamic) {
             this.topology = dynamic ? geometry : List.of();
@@ -260,6 +290,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                             AccelerationGeometry.IndexType.UINT32, mesh.triangleCount(), mesh.opaque()));
                 }
                 upload(geometry, true);
+                packRecords();
                 blas = backend.create(new AccelerationStructureDescription(AccelerationStructure.Type.BOTTOM_LEVEL, descriptions, dynamic, !dynamic));
                 backend.build(blas);
             } catch (RuntimeException | Error failure) { close(); throw failure; }
@@ -295,10 +326,59 @@ public final class SceneAccelerationStructure implements AutoCloseable {
             }
         }
 
+        private void packRecords() {
+            SceneAccelerationStructure.this.retireRecords(this);
+            int total = 0;
+            for (var mesh : geometry) total = Math.addExact(total, SceneRecordData.byteSize(mesh));
+            int generation = records.generation();
+            ensureRecordCapacity(total);
+            // 扩容会重新打包全部范围（包括本资源），此时不再重复写入。
+            if (records.generation() != generation) return;
+            writeRecords(records);
+        }
+
+        private void writeRecords(SceneGeometryArena arena) {
+            int[] offsets = new int[geometry.size()];
+            int[] sizes = new int[geometry.size()];
+            int[] generations = new int[geometry.size()];
+            for (int i = 0; i < geometry.size(); i++) {
+                var mesh = geometry.get(i);
+                int bytes = SceneRecordData.byteSize(mesh);
+                int offset = arena.allocate(bytes);
+                if (offset < 0) throw new IllegalStateException("记录缓冲无法容纳网格");
+                var packed = MemoryUtil.memAlloc(bytes).order(ByteOrder.nativeOrder());
+                try {
+                    SceneRecordData.write(packed, mesh);
+                    packed.flip();
+                    arena.buffer().upload(offset, packed);
+                } finally {
+                    MemoryUtil.memFree(packed);
+                }
+                offsets[i] = offset;
+                sizes[i] = bytes;
+                generations[i] = arena.generation();
+                recordBytes += bytes;
+            }
+            for (int i = 0; i < geometry.size(); i++) {
+                recordOffsets.add(offsets[i]);
+                recordSizes.add(sizes[i]);
+                recordGenerations.add(generations[i]);
+            }
+        }
+
+        private void invalidateRecords() {
+            recordOffsets.clear();
+            recordSizes.clear();
+            recordGenerations.clear();
+        }
+
         @Override public void close() {
+            if (closed) return;
+            closed = true;
             if (blas != null) blas.close();
             vertices.forEach(AccelerationStructureBuffer::close);
             indices.forEach(AccelerationStructureBuffer::close);
+            SceneAccelerationStructure.this.retireRecords(this);
         }
     }
 }

@@ -56,7 +56,7 @@ LuminRT 在 shader 资源转换阶段识别该声明，并为它分配 set 0 中
 - `gbufferModelViewInverse` 用于把视空间方向转换到世界方向；
 - 不要再把 `cameraPosition` 直接加到 ray origin；helper 已扣除 anchor。
 
-`luminrt_SceneHeader` 提供 `anchor` 与 `anchorGeneration`；代数变化时，任何锚定世界坐标的缓存（历史、辐照度、时序重投影）必须失效。CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 的 `cameraPosition` 会对远距离坐标进行重定位，不能直接与未经同样重定位的绝对世界坐标混用。需要绝对位置时，应核对 `cameraPositionInt` / `cameraPositionFract` 的约定；ray query 本身不需要绝对位置。
+`luminrt_SceneGeometry` 的 header 提供 `anchor` 与 `anchorGeneration`；代数变化时，任何锚定世界坐标的缓存（历史、辐照度、时序重投影）必须失效。CPU 端先用 double 做相减再转 float，减少远坐标精度损失。Iris 的 `cameraPosition` 会对远距离坐标进行重定位，不能直接与未经同样重定位的绝对世界坐标混用。需要绝对位置时，应核对 `cameraPositionInt` / `cameraPositionFract` 的约定；ray query 本身不需要绝对位置。
 
 ## 3. 当前几何内容和缺失内容
 
@@ -66,13 +66,13 @@ LuminRT 在 shader 资源转换阶段识别该声明，并为它分配 set 0 中
 
 Sodium 地形使用 `a_Position` 为 `RG32_UINT` 的压缩 quads；原版/动态顶点采集接受 `Position` 为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。四边形固定三角化为 `0,1,2` 与 `2,3,0`。AS 中没有：
 
-- 法线、切线、顶点颜色和光照值；UV 已通过独立只读 SSBO 提供，见 [场景 UV 接口](scene-uv.md)；
+- 法线、切线、顶点颜色和光照值；UV、tint 与材质身份已通过独立只读 SSBO 提供，见[场景几何接口](scene-geometry.md)；
 - block/entity/material ID 的 shader 可读表；
 - alpha test、纹理采样或透明材质判定；
 - shader 中的顶点位移结果；
 - 天空、云、天气、世界边界、第一人称手持物和绕过 staged CPU 顶点路径的自定义 GPU 几何。
 
-当前 AS 命中表示几何三角形命中，结合 `luminrt_SceneUV` 可重建 UV，但仍不能把 cutout 当成已经执行 alpha test 的透明表面。`gl_RayFlagsOpaqueEXT` 会使 traversal 把候选按 opaque 方式处理；它不是 Minecraft 材质 alpha 语义的实现。
+当前 AS 命中表示几何三角形命中，结合 `luminrt_SceneGeometry` / `luminrt_SceneRecords` 可重建 UV、tint 与材质身份，但仍不能把 cutout 当成已经执行 alpha test 的透明表面。`gl_RayFlagsOpaqueEXT` 会使 traversal 把候选按 opaque 方式处理；它不是 Minecraft 材质 alpha 语义的实现。
 
 ## 4. 从 ray tracing pipeline 映射到 ray query
 
@@ -297,7 +297,7 @@ descriptor 快照按 TLAS handle 缓存。帧间替换 TLAS 后，旧快照不�
 
 GPU smoke 用于覆盖 BLAS/TLAS 构建、更新、数组 descriptor、compute/fragment ray query、资源替换和延迟销毁。启动实际游戏后还应检查：区段编译/卸载、区段复用、实体移动、相机远距离移动、维度切换、光影重载、拓展关闭以及不支持 ray query 的 Vulkan 设备 fallback。
 
-本文的完整路径追踪示例是逻辑模板，不是对当前几何数据接口的材质完整承诺。UV 已由 `luminrt_SceneUV` 提供；要实现完整 Minecraft 光追材质，仍需要额外发布法线/材质索引与 alpha test 数据，并让它们与 BLAS 的 geometry/primitive 索引保持同一生命周期和拓扑版本。
+本文的完整路径追踪示例是逻辑模板，不是对当前几何数据接口的材质完整承诺。UV、tint 与材质身份已由 `luminrt_SceneRecords` 提供；要实现完整 Minecraft 光追材质，仍需要额外发布纹理标识与 alpha test 数据，并让它们与 BLAS 的 geometry/primitive 索引保持同一生命周期和拓扑版本。
 
 ## 13. 材质适配的数据契约
 

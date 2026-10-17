@@ -1,9 +1,9 @@
 # 光追场景性能改造计划
 
-> 状态：Phase 0–1 已实现；Phase 2 起待评审
+> 状态：Phase 0–2.3 已实现；Phase 2.4 起实现中
 > 范围：Lumin-RT 场景加速结构、几何记录、上传与构建调度
 > 参考实现：`prime-pt`（cell/BLAS 批量、材质池稳定地址、按完成证明退休、anchor 相对坐标、每帧构建预算）
-> 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景 UV 接口](scene-uv.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
+> 关联文档：[加速结构与绑定](acceleration-structures.md)、[场景几何接口](scene-geometry.md)、[光影包 Ray Query 指南](shaderpack-ray-query-guide.md)
 
 本文只讨论**性能与数据通路**，不包含纹理采集、LabPBR、OMM、LOD 与 ray tracing pipeline/SBT。
 
@@ -20,7 +20,7 @@
 改造方向：
 
 - 用 **anchor（f64）+ 相对坐标** 取代“相机相对实例”，让相机移动不再触碰实例与 TLAS。
-- 用 **一条 80 B/quad 的 packed 记录** 同时作为 BLAS 顶点输入和 shader 解包数据，删除独立的 UV 表与材质表（几何内存 ~132 B/三角形 → ~40 B/三角形）。
+- 用 **一条 112 B/quad 的 packed 记录** 同时作为着色数据与后续 BLAS 输入，删除独立的 UV 表与材质表（几何内存 ~132 B/三角形 → ~56 B/三角形）。
 - 记录与目录放进**分段 arena**，只写变化的 range，旧内容通过 `queueForDestroy` 在 GPU 完成后退休，杜绝原地覆盖。
 - 构建与上传**批处理**，scratch 复用，屏障收窄，并按每帧预算轮转。
 
@@ -145,27 +145,31 @@
 
 ### Phase 2：统一几何记录 + 分段 arena（核心，3–5 天）
 
-#### 2.1 QuadRecord 布局
+> 实现状态：2.1–2.3 已完成。实际记录为 **112 B**（UV 用 f32 以支持 tiling 与图集精度），
+> 目录与记录拆成两个 SSBO；Phase 2.4（记录直接作为 BLAS 输入）仍待实现。
 
-每条 **80 B**，16 B 对齐：
+#### 2.1 QuadRecord 布局（已实现）
+
+每条 **112 B**（7 个 `uvec4`），16 B 对齐：
 
 ```text
 struct QuadRecord {
-    float p0x, p0y, p0z, pad;   //  0
-    float p1x, p1y, p1z, pad;   // 16
-    float p2x, p2y, p2z, pad;   // 32
-    float p3x, p3y, p3z, pad;   // 48
-    uint  uv01;                 // 64：UNORM16 (u0,v0) | (u1,v1) << 16
-    uint  uv23;                 // 68：UNORM16 (u2,v2) | (u3,v3) << 16
-    uint  tint;                 // 72：RGBA8 顶点色（已乘 tint）
-    uint  material;             // 76：materialId(16) | alphaMode(2) | flags(14)
+    float  p0x, p0y, p0z, pad;   //   0
+    float  p1x, p1y, p1z, pad;   //  16
+    float  p2x, p2y, p2z, pad;   //  32
+    float  p3x, p3y, p3z, pad;   //  48
+    float2 uv0; float2 uv1;      //  64
+    float2 uv2; float2 uv3;      //  80
+    uint   tint;                 //  96：RGBA8 顶点色
+    uint   material;             // 100：materialId 低 16 位，bit16 opaque
+    uint   pad0, pad1;           // 104
 };
 ```
 
 - 位置保持 **section 局部**（−8..24），实例 transform 继续承担平移。
-- UV 使用 UNORM16：量化误差 1/65535 ≈ 1.5e-5，优于 Sodium 现有的 15-bit（3e-5），不降低画质。
-- 固定三角化 `(0,1,2)`、`(2,3,0)`；`primitive >> 1` 定位记录，`primitive & 1` 选半面。
-- `material` 预留 `alphaMode/flags`，为后续 cutout/alpha 纹理留位。
+- UV 使用 f32：UNORM16 无法表示 `> 1` 的平铺 UV，且图集边缘需要高于 f16 的精度。
+- 固定三角化 `(0,1,2)`、`(2,3,0)`；quad 用 `primitive >> 1` 定位记录、`primitive & 1` 选半面；三角形直接以 `primitive` 索引记录并复用末角。
+- 几何内存约 112 B/quad（56 B/三角形），相对改造前约 264 B/quad（132 B/三角形）降低约 2.4 倍。
 
 #### 2.2 arena 布局
 
@@ -229,7 +233,7 @@ uvec4 header = luminrt_geometry[0];              // version, I, G, anchorGenerat
 vec3  anchor = uintBitsToFloat(luminrt_geometry[1].xyz);
 uvec4 inst   = luminrt_geometry[2 + instanceIndex];
 uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
-// 记录地址 = geo.x 字节；每条 80 B，5 × uvec4
+// 记录地址 = geo.x 字节；每条 112 B，7 × uvec4
 ```
 
 提供的函数（命名与旧 API 对齐，便于迁移）：
@@ -327,7 +331,7 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 | 覆盖仍被 shader 读取的记录 | 只新建 range；旧 range 在 `queueForDestroy` 回调中释放，绝不原地改 |
 | arena 碎片 | best-fit free-list + 2 倍扩容 + 上限；超限时整页重建 |
 | 目录跨帧读写竞争 | 目录双缓冲 + 按帧绑定，旧目录进完成队列 |
-| UNORM16 UV 精度 | 误差 1.5e-5，优于现有 3e-5；保留 f32 对照开关 |
+| UV 精度/平铺 | 使用 f32，UNORM16 无法表示平铺 UV 与图集边缘 |
 | anchor 变化导致光影包历史失效 | header 暴露 `anchorGeneration`，文档要求检测后清历史 |
 | `vertexStride = 80` 与对齐要求 | 记录 16 B 对齐，位置在 offset 0；`vertexData` 满足 4 B 对齐 |
 | 旧光影包不兼容（SSBO 改名） | 版本号升 2，README/release note 明示 breaking，示例同步 |
@@ -371,7 +375,7 @@ uvec4 geo    = luminrt_geometry[2 + header.y + inst.x + geometryIndex];
 
 | Lumin-RT 改造项 | prime-pt 对应机制 |
 | --- | --- |
-| 80 B QuadRecord + `primitive>>1` 解包 | 176/240/272/432 B quad 记录 + `primitiveIndex >> 1` 与半面位 |
+| 112 B QuadRecord + `primitive>>1` 解包 | 176/240/272/432 B quad 记录 + `primitiveIndex >> 1` 与半面位 |
 | 共享索引 pattern | 固定 `012 / 230` 共享索引 |
 | 分段 arena + 完成证明退休 | 材质池按格式分页、设备地址不迁移、按最后消费者与 GPU 完成退休 |
 | anchor + f32 相对坐标 | `scene.anchor` 与 `absolutePosition = anchor + relativePosition` |

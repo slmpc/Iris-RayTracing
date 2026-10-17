@@ -22,26 +22,16 @@ public abstract class VulkanProgramResourcesMixin {
 
     @Inject(method = "getResourceAccesses", at = @At("RETURN"))
     private void luminrt$accesses(ProgramResources.Bindings bindings, CallbackInfoReturnable<List<VulkanSynchronization.Access>> cir) {
-        var uv = bindings.buffers().get(com.github.slmpc.luminrt.scene.SceneUVData.SHADER_NAME);
-        if (uv != null) for (var slice : uv) {
-            cir.getReturnValue().add(new VulkanSynchronization.Access(new VulkanSynchronization.Resource(false,
-                    ((com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer)slice.buffer()).vkBuffer()),
-                    org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
-        }
-        var material = bindings.buffers().get(com.github.slmpc.luminrt.scene.SceneMaterialData.SHADER_NAME);
-        if (material != null) for (var slice : material) {
-            cir.getReturnValue().add(new VulkanSynchronization.Access(new VulkanSynchronization.Resource(false,
-                    ((com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer)slice.buffer()).vkBuffer()),
-                    org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
-        }
-        var header = bindings.buffers().get(com.github.slmpc.luminrt.scene.SceneHeaderData.SHADER_NAME);
-        if (header != null) for (var slice : header) {
-            cir.getReturnValue().add(new VulkanSynchronization.Access(new VulkanSynchronization.Resource(false,
-                    ((com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer)slice.buffer()).vkBuffer()),
-                    org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
+        for (var name : List.of(com.github.slmpc.luminrt.scene.SceneGeometryDirectory.SHADER_NAME,
+                com.github.slmpc.luminrt.scene.SceneGeometryDirectory.RECORDS_SHADER_NAME)) {
+            var buffers = bindings.buffers().get(name);
+            if (buffers == null) continue;
+            for (var slice : buffers) {
+                cir.getReturnValue().add(new VulkanSynchronization.Access(new VulkanSynchronization.Resource(false,
+                        ((com.mojang.renderpearl.backend.vulkan.VulkanGpuBuffer)slice.buffer()).vkBuffer()),
+                        org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | org.lwjgl.vulkan.VK10.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        org.lwjgl.vulkan.VK10.VK_ACCESS_SHADER_READ_BIT, false));
+            }
         }
         for (var values : ((ResolvedAccelerationStructures) (Object) bindings).accelerationStructures().values()) {
             for (var value : values) {

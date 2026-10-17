@@ -3,7 +3,7 @@
 #ifdef ENABLED_LUMIN_RAY_TRACING_EXTENSION
 #extension GL_EXT_ray_query : require
 #include "/lib/luminrt_ray_query.glsl"
-#include "/lib/luminrt_scene_uv.glsl"
+#include "/lib/luminrt_scene_geometry.glsl"
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform ivec3 cameraPositionInt;

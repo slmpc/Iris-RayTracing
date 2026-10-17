@@ -22,6 +22,8 @@ final class VulkanAccelerationStructureBuffer implements AccelerationStructureBu
     private final long size;
     private final long address;
     private boolean closed;
+    private boolean destroyed;
+    private final java.util.List<Runnable> destroyActions = new java.util.ArrayList<>();
 
     VulkanAccelerationStructureBuffer(VulkanAccelerationStructureBackend owner, long size, int usage) {
         if (size <= 0) throw new IllegalArgumentException("Buffer size must be positive");
@@ -96,8 +98,22 @@ final class VulkanAccelerationStructureBuffer implements AccelerationStructureBu
         if (!closed) {
             closed = true;
             owner.release(this);
-            owner.device.createCommandEncoder().queueForDestroy(this::destroy);
+            owner.device.createCommandEncoder().queueForDestroy(() -> {
+                destroy();
+                destroyed = true;
+                destroyActions.forEach(Runnable::run);
+                destroyActions.clear();
+            });
         }
+    }
+
+    @Override
+    public void onDestroy(Runnable action) {
+        owner.checkThread();
+        java.util.Objects.requireNonNull(action);
+        if (destroyed) { action.run(); return; }
+        // 与 vmaDestroyBuffer 同一完成回调，避免提前释放仍被 GPU 读取的范围。
+        destroyActions.add(action);
     }
 
     void destroy() { vmaDestroyBuffer(owner.device.vma(), handle, allocation); }

@@ -115,13 +115,14 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
-    void batchesSceneTablesAndInstanceUpload() {
+    void batchesDirectoryAndInstanceUpload() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
             scene.put("terrain", List.of(triangle(0)), 0, 0, 0, false);
             scene.build(0, 0, 0);
+            // 第一次批量为网格记录上传，第二次为目录与实例。
             assertEquals(2, backend.uploadBatches);
-            assertEquals(4, backend.lastUploadCount);
+            assertEquals(2, backend.lastUploadCount);
         }
     }
 
@@ -145,23 +146,38 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
-    void headerCarriesAnchorGenerationAndInstanceCount() {
+    void directoryCarriesAnchorCountsAndRecordRanges() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
             scene.put("terrain", List.of(triangle(0)), 100, 0, 0, false);
             scene.build(10, 0, 0);
-            var header = (TestBuffer)scene.headerBuffer();
-            assertEquals(SceneHeaderData.SIZE, header.size());
-            assertEquals(SceneHeaderData.VERSION, header.data.getInt(0));
-            assertEquals((int)scene.anchorGeneration(), header.data.getInt(4));
-            assertEquals(1, header.data.getInt(8));
-            assertEquals((int)scene.anchor().x(), header.data.getInt(16));
-            assertEquals((int)scene.anchor().y(), header.data.getInt(20));
-            assertEquals((int)scene.anchor().z(), header.data.getInt(24));
-            // 重定位后同一缓冲区携带新 anchor 与代数。
+            var directory = (TestBuffer)scene.directoryBuffer();
+            assertEquals(SceneGeometryDirectory.VERSION, directory.data.getInt(0));
+            assertEquals((int)scene.anchorGeneration(), directory.data.getInt(4));
+            assertEquals(1, directory.data.getInt(8));
+            assertEquals(1, directory.data.getInt(12));
+            assertEquals((int)scene.anchor().x(), directory.data.getInt(16));
+            assertEquals((int)scene.anchor().y(), directory.data.getInt(20));
+            assertEquals((int)scene.anchor().z(), directory.data.getInt(24));
+            // 实例目录：geometry 从第 2 条开始，共 1 条。
+            assertEquals(0, directory.data.getInt(2 * 16));
+            assertEquals(1, directory.data.getInt(2 * 16 + 4));
+            // geometry 目录：记录偏移、记录数、标志。
+            int entry = 2 + 1;
+            int offset = directory.data.getInt(entry * 16);
+            assertEquals(1, directory.data.getInt(entry * 16 + 4));
+            assertEquals(0, directory.data.getInt(entry * 16 + 8) & SceneGeometryDirectory.FLAG_QUADS);
+            var records = (TestBuffer)scene.recordsBuffer();
+            assertEquals(0f, records.data.getFloat(offset), 0f);
+            assertTrue(scene.statistics().directoryBytes() >= SceneGeometryDirectory.byteSize(1, 1));
+            assertTrue(scene.statistics().recordBytes() >= SceneRecordData.STRIDE);
+            // 重定位后新的目录缓冲区携带新 anchor 与代数。
             scene.build(10 + 300, 0, 0);
-            assertEquals((int)scene.anchorGeneration(), header.data.getInt(4));
-            assertEquals((int)scene.anchor().x(), header.data.getInt(16));
+            var updated = (TestBuffer)scene.directoryBuffer();
+            assertNotSame(directory, updated);
+            assertTrue(directory.closed);
+            assertEquals((int)scene.anchorGeneration(), updated.data.getInt(4));
+            assertEquals((int)scene.anchor().x(), updated.data.getInt(16));
         }
     }
 
@@ -187,37 +203,37 @@ class SceneAccelerationStructureTest {
     }
 
     @Test
-    void updatesUVTableAlongsideRefitAndRetainsItForPositionOnlyChanges() {
+    void repacksDynamicRecordsOnlyWhenContentChanges() {
         var backend = new TestBackend();
         try (var scene = new SceneAccelerationStructure(backend)) {
-            var mesh = new TriangleMesh(triangle(0).positions(), new int[]{0,1,2}, new float[]{0,0, 1,0, 0,1}, true);
-            scene.put("dynamic", List.of(mesh), 0,0,0, true);
-            var tlas = (TestStructure)scene.build(0,0,0);
-            var blas = tlas.references.getFirst();
-            var first = (TestBuffer)scene.uvBuffer();
-            scene.build(1,0,0);
-            assertSame(first, scene.uvBuffer());
-            scene.put("dynamic", List.of(new TriangleMesh(triangle(1).positions(), mesh.indices(), mesh.uvs(), true)), 0,0,0, true);
-            scene.build(0,0,0);
-            assertSame(first, scene.uvBuffer());
-            scene.put("dynamic", List.of(new TriangleMesh(mesh.positions(), mesh.indices(), new float[]{.5f,0, 1,0, 0,1}, true)), 0,0,0, true);
-            scene.put("extra", List.of(triangle(0)), 0,0,0, false);
-            backend.failNextBuild = true;
-            assertThrows(IllegalStateException.class, () -> scene.build(0,0,0));
-            assertSame(first, scene.uvBuffer());
-            assertFalse(first.closed);
-            scene.build(0,0,0);
-            assertTrue(first.closed);
-            assertSame(blas, tlas.references.getFirst());
-            var updated = (TestBuffer)scene.uvBuffer();
-            int geometry = updated.data.getInt(16);
-            int triangles = updated.data.getInt(geometry * 16);
-            assertEquals(.5f, updated.data.getFloat(triangles * 16));
-            scene.remove("dynamic"); scene.remove("extra"); scene.build(0,0,0);
-            assertTrue(updated.closed);
-            assertEquals(16, scene.uvBuffer().size());
+            var mesh = new TriangleMesh(triangle(0).positions(), new int[]{0, 1, 2},
+                    new float[]{0, 0, 1, 0, 0, 1}, true);
+            scene.put("dynamic", List.of(mesh), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            int first = recordOffset(scene);
+            var moved = new TriangleMesh(triangle(1).positions(), mesh.indices(), mesh.uvs(), true);
+            scene.put("dynamic", List.of(moved), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            int second = recordOffset(scene);
+            // 位置变化需要新记录范围；旧范围在旧目录退休后释放。
+            assertNotEquals(first, second);
+            assertEquals(1f, ((TestBuffer)scene.recordsBuffer()).data.getFloat(second), 0f);
+            // 内容完全相同时只 refit，不重新打包记录。
+            int batches = backend.uploadBatches;
+            scene.put("dynamic", List.of(moved), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            assertEquals(second, recordOffset(scene));
+            // 位置上传一批 + 目录/实例一批，记录未重写。
+            assertEquals(batches + 2, backend.uploadBatches);
         }
         assertTrue(backend.buffers.stream().allMatch(TestBuffer::isClosed));
+    }
+
+    /** 读取唯一实例中第 {@code geometryIndex} 个 geometry 的记录起始偏移。 */
+    private static int recordOffset(SceneAccelerationStructure scene) {
+        var directory = ((TestBuffer)scene.directoryBuffer()).data;
+        int instances = directory.getInt(8);
+        return directory.getInt((2 + instances) * 16);
     }
 
     private static final class TestBackend implements AccelerationStructureBackend {

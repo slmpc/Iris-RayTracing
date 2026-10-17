@@ -75,6 +75,8 @@ public final class SceneRecordData {
             target.putInt(base + 104, 0);
             target.putInt(base + 108, 0);
         }
+        // 绝对写入不移动 position；把末尾作为 flip 后的 limit。
+        target.position(bytes);
     }
 
     private static void position(ByteBuffer target, int offset, float[] positions, int vertex) {

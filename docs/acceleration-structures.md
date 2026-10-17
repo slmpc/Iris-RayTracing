@@ -83,8 +83,9 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
 计算（整数部分先相减再叠加小数，远坐标下仍精确），命中世界坐标为 `anchor + origin + t*dir`。
 依赖世界坐标的光影包缓存（历史、辐照度、时序重投影）必须在 `anchorGeneration` 变化时失效。
 实例平移先在 CPU 用 double 相减，再转为 float，避免直接把远距离世界坐标写入 BLAS。
-`luminrt_SceneHeader`（32 B）自动绑定，提供 `uvec4(version, anchorGeneration, instanceCount, 0)`
-与 `ivec4(anchor.xyz, 0)`；未声明该块的旧光影包在相机离开 anchor 后会出现位置偏移。
+`luminrt_SceneGeometry`（目录）与 `luminrt_SceneRecords`（112 B/quad 记录）自动绑定：
+目录 header 为 `uvec4(version, anchorGeneration, instanceCount, geometryCount)`，随后是 `ivec4(anchor.xyz, 0)`、
+实例目录和 geometry 目录；记录按范围增量更新，旧范围在旧目录完成 GPU 使用后释放。未声明这两个块的旧光影包在相机离开 anchor 后会出现位置偏移。
 
 - 地形：Iris Vulkan 使用 Sodium 0.9.2，实际编译路径绕过原版 `SectionCompiler`。
   在 `ChunkBuildBuffers.createMesh` / `createModifiedTranslucentMesh` 保存当次格式，
@@ -117,7 +118,7 @@ anchor 是固定在 64 格整数网格上的世界原点；相机在其 256 格�
 Sodium 地形支持 `RG32_UINT` 压缩位置的 quads；原版/动态路径支持位置属性为 `RGB32_FLOAT` 的 quads、triangles、triangle strip 和 triangle fan。
 四边形采用原版的 `0,1,2 / 2,3,0` 三角化；线、点及其他位置编码跳过。
 仅 solid 与 cutout 地形标记 opaque（alpha 尚未接入，cutout 无法在命中阶段剔除），translucent 和动态几何保留 ray query candidate。
-**当前收集几何位置、UV 与材质标识**，UV 通过自动绑定的只读 `luminrt_SceneUV` SSBO 提供，材质通过 `luminrt_SceneSurface` 提供，使用方式见 [场景 UV 接口](scene-uv.md)。尚未提供纹理标识或 alpha test；候选命中是否确认由 shader 决定，
+**当前收集几何位置、UV、tint 与材质身份**，通过自动绑定的只读 `luminrt_SceneGeometry` 目录与 `luminrt_SceneRecords` 记录提供，使用方式见[场景几何接口](scene-geometry.md)。尚未提供纹理标识或 alpha test；候选命中是否确认由 shader 决定，
 `gl_RayFlagsOpaqueEXT` 会把叶片透明区域等也视为几何遮挡。
 源模型的面剔除仍沿用原版编译输出，shader 顶点位移尚未反映到 AS。
 天空、云、天气、世界边界、第一人称手持物及绕过上述 CPU 顶点路径的自定义 GPU 绘制未接入。

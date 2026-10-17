@@ -91,43 +91,6 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] 
     void writePositions(ByteBuffer target) { target.asFloatBuffer().put(positions); }
     void writeIndices(ByteBuffer target) { target.asIntBuffer().put(indices); }
 
-    boolean sameUVs(TriangleMesh other) {
-        return Arrays.equals(indices, other.indices) && Arrays.equals(uvs, other.uvs);
-    }
-
-    boolean sameMaterials(TriangleMesh other) {
-        return Arrays.equals(indices, other.indices) && Arrays.equals(materialData, other.materialData)
-                && Arrays.equals(colors, other.colors) && Arrays.equals(lightData, other.lightData);
-    }
-
-    void writeTriangleSurface(ByteBuffer target, boolean staticInstance) {
-        int[] triangleIndices = indices;
-        for (int triangle = 0; triangle < triangleCount(); triangle++) {
-            int first = triangleIndices[triangle * 3];
-            int materialId = materialData.length == 0 ? 0 : materialData[first];
-            int flags = opaque ? 1 : 0;
-            if (staticInstance) flags |= 2;
-            target.putInt(materialId).putInt(flags).putInt(Float.floatToIntBits(0.5f)).putInt(0);
-            for (int vertex = 0; vertex < 3; vertex++) {
-                int index = triangleIndices[triangle * 3 + vertex];
-                target.putInt(Float.floatToIntBits(positions[index * 3]));
-                target.putInt(Float.floatToIntBits(positions[index * 3 + 1]));
-                target.putInt(Float.floatToIntBits(positions[index * 3 + 2]));
-                target.putInt(0);
-            }
-        }
-    }
-
-    void writeTriangleUVs(ByteBuffer target) {
-        for (int triangle = 0; triangle < triangleCount(); triangle++) {
-            for (int vertex = 0; vertex < 3; vertex++) {
-                int index = indices[triangle * 3 + vertex] * 2;
-                target.putFloat(hasUVs() ? uvs[index] : 0).putFloat(hasUVs() ? uvs[index + 1] : 0);
-            }
-            target.putLong(0);
-        }
-    }
-
     public static TriangleMesh copy(MeshData mesh, boolean opaque) {
         var state = mesh.drawState();
         var position = state.format().getElement("Position");

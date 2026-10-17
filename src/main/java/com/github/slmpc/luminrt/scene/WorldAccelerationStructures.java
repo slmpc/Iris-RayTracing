@@ -98,26 +98,21 @@ public final class WorldAccelerationStructures {
 
     public static SceneAccelerationStructure.Statistics statistics() {
         RenderSystem.assertOnRenderThread();
-        return scene == null ? new SceneAccelerationStructure.Statistics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return scene == null ? new SceneAccelerationStructure.Statistics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                              : scene.statistics();
     }
 
     /** 已确认上传且保存 CPU 快照的 Sodium 区段数量，不包含动态实例。 */
     public static int terrainSectionCount() { return TERRAIN.size(); }
 
-    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentUV() {
+    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentGeometry() {
         current();
-        return scene.uvBuffer().shaderSlice();
+        return scene.directoryBuffer().shaderSlice();
     }
 
-    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentMaterial() {
+    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentRecords() {
         current();
-        return scene.materialBuffer().shaderSlice();
-    }
-
-    public static com.mojang.renderpearl.api.buffers.GpuBufferSlice currentHeader() {
-        current();
-        return scene.headerBuffer().shaderSlice();
+        return scene.recordsBuffer().shaderSlice();
     }
 
     /** 诊断开关打开时每 120 帧输出一次累计场景统计，不参与稳态逻辑。 */
@@ -126,10 +121,11 @@ public final class WorldAccelerationStructures {
         var stats = scene.statistics();
         LuminRT.LOGGER.info(
                 "LuminRT scene: meshes={} blas={}/{} tlas={}/{} anchorGen={} rebase={} "
-                        + "bytes(in={},uv={},mat={},hdr={}) batches={} uploads={}",
+                        + "bytes(in={},dir={},rec={}) arena={}/{} batches={} uploads={}",
                 stats.meshes(), stats.blasBuilds(), stats.blasUpdates(), stats.tlasBuilds(), stats.tlasUpdates(),
-                scene.anchorGeneration(), stats.anchorRebases(), stats.instanceBytes(), stats.uvBytes(),
-                stats.materialBytes(), stats.headerBytes(), stats.uploadBatches(), stats.uploadCount());
+                scene.anchorGeneration(), stats.anchorRebases(), stats.instanceBytes(), stats.directoryBytes(),
+                stats.recordBytes(), stats.arenaResident(), stats.arenaCapacity(),
+                stats.uploadBatches(), stats.uploadCount());
     }
 
     private static boolean ensureScene() {

@@ -50,6 +50,14 @@ final class SceneGeometryArena implements AutoCloseable {
         return -1;
     }
 
+    /** 只探测是否可分配，不改变空闲状态。 */
+    boolean canAllocate(int bytes) {
+        requireOpen();
+        if (bytes <= 0 || (bytes & 15) != 0) throw new IllegalArgumentException("记录范围必须按 16 B 对齐");
+        for (int length : free.values()) if (length >= bytes) return true;
+        return capacity - reserved >= bytes;
+    }
+
     /** 只接受当前缓冲代数的范围；旧代数的释放由缓冲整体退休处理。 */
     void free(int offset, int bytes, int rangeGeneration) {
         if (closed || rangeGeneration != generation) return;
