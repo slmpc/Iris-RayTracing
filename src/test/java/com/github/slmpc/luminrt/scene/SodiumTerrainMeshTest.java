@@ -71,4 +71,26 @@ class SodiumTerrainMeshTest {
         var unknown = VertexFormat.builder(0).addAttribute("a_Position", GpuFormat.RGB32_FLOAT).build();
         assertThrows(IllegalArgumentException.class, () -> SodiumTerrainMesh.copy(ByteBuffer.allocate(48), unknown, true));
     }
+
+    @Test
+    void decodesIrisEntityEncodingToBlockId() {
+        var format = VertexFormat.builder(0)
+                .addAttribute("a_Position", GpuFormat.RG32_UINT)
+                .addAttribute("mc_Entity", GpuFormat.R32_UINT)
+                .addAttribute("a_TexCoord", GpuFormat.RG16_UINT).build();
+        int stride = format.getVertexSize();
+        var source = ByteBuffer.allocate(stride * 4).order(ByteOrder.nativeOrder());
+        for (int i = 0; i < 4; i++) {
+            int base = i * stride;
+            // 量化坐标 0x40000 对应世界 0，避免位置校验干扰材质断言。
+            source.putInt(base, 256);
+            source.putInt(base + 4, 0);
+            source.putInt(base + 8, i == 0 ? 13 : 2);
+            source.putShort(base + 12, (short)0);
+            source.putShort(base + 14, (short)0);
+        }
+        var mesh = SodiumTerrainMesh.copy(source, format, true);
+        // (13 >> 1) - 1 = 5，(2 >> 1) - 1 = 0。
+        assertArrayEquals(new int[]{5, 0, 0, 0}, mesh.materialData());
+    }
 }

@@ -23,6 +23,8 @@ public final class SceneGeometryDirectory {
     public static final int HEADER_RECORDS = 2;
     public static final int FLAG_QUADS = 1;
     public static final int FLAG_OPAQUE = 1 << 1;
+    /** 动态实例的 geometry；着色端可据此跳过静态辐照度缓存写入。 */
+    public static final int FLAG_DYNAMIC = 1 << 2;
 
     public record Instance(int geometryBase, int geometryCount) {}
     public record Geometry(int shadingOffset, int recordCount, int flags, int positionOffset) {}

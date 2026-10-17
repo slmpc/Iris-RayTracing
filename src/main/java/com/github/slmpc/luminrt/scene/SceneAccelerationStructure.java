@@ -155,7 +155,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                 for (int i = 0; i < resource.geometry.size(); i++) {
                     var mesh = resource.geometry.get(i);
                     int flags = (mesh.quads() ? SceneGeometryDirectory.FLAG_QUADS : 0)
-                            | (mesh.opaque() ? SceneGeometryDirectory.FLAG_OPAQUE : 0);
+                            | (mesh.opaque() ? SceneGeometryDirectory.FLAG_OPAQUE : 0)
+                            | (resource.dynamic ? SceneGeometryDirectory.FLAG_DYNAMIC : 0);
                     geometries.add(new SceneGeometryDirectory.Geometry(
                             resource.shadingOffsets.get(i), mesh.recordCount(), flags,
                             resource.positionOffsets.get(i)));

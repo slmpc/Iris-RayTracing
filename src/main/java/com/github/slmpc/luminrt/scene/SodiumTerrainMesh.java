@@ -46,7 +46,8 @@ public final class SodiumTerrainMesh {
             }
             colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * stride + color.offset());
             lightData[i] = light == null ? 0 : source.getInt(source.position() + i * stride + light.offset());
-            materialData[i] = material == null ? 0 : source.getInt(source.position() + i * stride + material.offset());
+            materialData[i] = material == null ? 0 : blockId(source.getInt(
+                    source.position() + i * stride + material.offset()));
             if (uv != null) {
                 int uvOffset = source.position() + i * stride + uv.offset();
                 // 对应 Sodium 的 _vert_tex_diffuse_coord；不包含最高位偏移方向及 mip 收缩修正。
@@ -56,5 +57,10 @@ public final class SodiumTerrainMesh {
         }
         return new TriangleMesh(xyz, TriangleMesh.sequentialIndices(PrimitiveTopology.QUADS, count), texture,
                 materialData, colors, lightData, opaque, true);
+    }
+
+    /** Iris XHFP 的 mc_Entity 编码为 {@code (blockId + 1) << 1 | renderTypeBit}。 */
+    static int blockId(int raw) {
+        return raw == 0 ? 0 : Math.max(0, (raw >>> 1) - 1);
     }
 }

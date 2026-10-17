@@ -124,7 +124,8 @@ public record TriangleMesh(float[] positions, int[] indices, float[] uvs, int[] 
             colors[i] = color == null ? 0xFFFFFFFF : source.getInt(source.position() + i * format.getVertexSize() + color.offset());
             lightData[i] = light == null ? 0 : Short.toUnsignedInt(source.getShort(source.position() + i * format.getVertexSize() + light.offset()))
                     | Short.toUnsignedInt(source.getShort(source.position() + i * format.getVertexSize() + light.offset() + 2)) << 16;
-            materialData[i] = entity == null ? 0 : source.getShort(source.position() + i * format.getVertexSize() + entity.offset());
+            materialData[i] = entity == null ? 0 : Math.max(0, source.getShort(
+                    source.position() + i * format.getVertexSize() + entity.offset()));
         }
         // 四边形排序仅改变绘制顺序；AS 保持固定的 0-1-2、2-3-0 三角化。
         int[] indices = sequentialIndices(topology, count);

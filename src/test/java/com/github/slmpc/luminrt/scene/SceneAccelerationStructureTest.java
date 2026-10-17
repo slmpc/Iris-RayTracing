@@ -242,6 +242,20 @@ class SceneAccelerationStructureTest {
         }
     }
 
+    @Test
+    void marksDynamicGeometryInDirectory() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend)) {
+            scene.put("dynamic", List.of(triangle(0)), 0, 0, 0, true);
+            scene.build(0, 0, 0);
+            var directory = ((TestBuffer)scene.directoryBuffer()).data;
+            int instances = directory.getInt(8);
+            int flags = directory.getInt((2 + instances) * 16 + 8);
+            assertNotEquals(0, flags & SceneGeometryDirectory.FLAG_DYNAMIC);
+            assertNotEquals(0, flags & SceneGeometryDirectory.FLAG_OPAQUE);
+        }
+    }
+
     private static TriangleMesh quadMesh(int quads) {
         float[] positions = new float[Math.multiplyExact(quads, 12)];
         int[] indices = new int[Math.multiplyExact(quads, 6)];

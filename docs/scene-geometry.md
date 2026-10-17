@@ -50,7 +50,8 @@ bool hasPosition = hit.found && luminrtGetHitPosition(hit.instanceIndex, hit.geo
 | 2 到 2+I-1：实例 | geometry 基址 | geometry 数 | 0 | 0 |
 | 2+I 到 2+I+G-1：geometry | 着色块字节偏移 | 记录数 | flags | 位置块字节偏移 |
 
-- flags 的 bit0 表示四边形拓扑，bit1 表示 opaque。
+- flags 的 bit0 表示四边形拓扑，bit1 表示 opaque，bit2 表示动态实例的 geometry。
+  着色端可用 bit2 跳过静态辐照度缓存等只能由静态表面更新的数据。
 - 实例的 `geometry 基址` 是 geometry 目录内的下标（从 0 开始），不是全局记录号。
 - 空场景仍提供有效的 32 字节 header 与 anchor 记录。
 
@@ -71,12 +72,15 @@ bool hasPosition = hit.found && luminrtGetHitPosition(hit.instanceIndex, hit.geo
 | --- | --- |
 | 0 | uv0.x uv0.y uv1.x uv1.y |
 | 1 | uv2.x uv2.y uv3.x uv3.y |
-| 2 | tint（RGBA8）、material（低 16 位材质身份，bit16 opaque）、0、0 |
+| 2 | tint（RGBA8）、material（低 16 位方块/实体身份，bit16 opaque）、0、0 |
 
 四边形每两个三角形一条记录，固定 `0-1-2`、`2-3-0` 三角化；独立三角形复用末角作为第四角。UV 插值：
 
 - 四边形：`primitive & 1` 选择半面，重心权重作用在对应三个角上；
 - 三角形：`primitive` 直接索引记录，使用角 0/1/2。
+
+材质身份是解码后的方块/实体 ID：地形从 Iris XHFP 的 `mc_Entity` 编码 `(blockId + 1) << 1 | renderTypeBit` 还原；
+动态网格使用其 `mc_Entity.x`。bit16 为 opaque 标志。
 
 `primitiveIndex` 与 BLAS 的固定索引 pattern 对应，不要用 Minecraft 原始顶点缓冲的索引。
 
