@@ -108,6 +108,7 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         } else {
             var next = new MeshResource(geometry, x, y, z, dynamic);
             meshes.put(key, next);
+            next.registered = true;
             if (previous != null) retired.add(previous);
             structural = true;
         }
@@ -287,7 +288,13 @@ public final class SceneAccelerationStructure implements AutoCloseable {
     }
 
     private void requestBuild(AccelerationStructure structure, boolean update) {
+        // 同一结构在一帧内可能被多次重建；只保留最后一次请求。
+        discardPendingBuild(structure);
         pendingBuilds.add(new AccelerationStructureBackend.Build(structure, update));
+    }
+
+    private void discardPendingBuild(AccelerationStructure structure) {
+        pendingBuilds.removeIf(build -> build.structure() == structure);
     }
 
     /** 一次提交本帧累积的 BLAS 构建/更新；失败时保留队列供下一次构建重试。 */
@@ -348,6 +355,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
         private AccelerationStructure blas;
         private double x, y, z;
         private boolean closed;
+        /** 是否已经加入 meshes；构造期的新资源不会参与全量重打包。 */
+        private boolean registered;
 
         private MeshResource(List<TriangleMesh> geometry, double x, double y, double z, boolean dynamic) {
             this.topology = dynamic ? geometry : List.of();
@@ -376,8 +385,8 @@ public final class SceneAccelerationStructure implements AutoCloseable {
                         SceneRecordData.positionByteSize(mesh)));
             int generation = records.generation();
             ensureRecordCapacity(total);
-            // 扩容会重新打包全部范围（包括本资源）并重建 BLAS，此时不再重复写入。
-            if (records.generation() != generation) return;
+            // 扩容会重打包并重建 BLAS：已注册资源已被覆盖，新资源尚未加入 meshes，仍需写入自己的范围。
+            if (records.generation() != generation && registered) return;
             writeRecords(records);
         }
 
@@ -472,14 +481,20 @@ public final class SceneAccelerationStructure implements AutoCloseable {
 
         private void rebuildBlas() {
             if (closed || shadingOffsets.size() != geometry.size()) return;
-            if (blas != null) blas.close();
+            if (blas != null) {
+                SceneAccelerationStructure.this.discardPendingBuild(blas);
+                blas.close();
+            }
             buildBlas();
         }
 
         @Override public void close() {
             if (closed) return;
             closed = true;
-            if (blas != null) blas.close();
+            if (blas != null) {
+                SceneAccelerationStructure.this.discardPendingBuild(blas);
+                blas.close();
+            }
             SceneAccelerationStructure.this.retireRecords(this);
         }
     }

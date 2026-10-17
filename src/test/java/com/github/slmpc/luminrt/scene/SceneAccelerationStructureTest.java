@@ -203,6 +203,49 @@ class SceneAccelerationStructureTest {
         }
     }
 
+    @Test
+    void growsRecordArenaWhileAddingNewResourceAndRepacksExisting() {
+        var backend = new TestBackend();
+        try (var scene = new SceneAccelerationStructure(backend, 4096, 16)) {
+            scene.put("small", List.of(triangle(0)), 0, 0, 0, false);
+            scene.build(0, 0, 0);
+            // 64 个 quad 的记录字节超过 4 KiB 初始 arena，触发扩容与已有资源的全量重打包。
+            scene.put("big", List.of(quadMesh(64)), 0, 0, 0, false);
+            var tlas = (TestStructure)scene.build(0, 0, 0);
+            assertEquals(2, tlas.references.size());
+            var small = (AccelerationGeometry.Triangles)
+                    ((TestStructure)tlas.references.get(0)).description.geometries().getFirst();
+            var big = (AccelerationGeometry.Triangles)
+                    ((TestStructure)tlas.references.get(1)).description.geometries().getFirst();
+            assertEquals(1, small.primitiveCount());
+            assertEquals(128, big.primitiveCount());
+            assertTrue(((TestBuffer)scene.recordsBuffer()).size() > 4096);
+        }
+    }
+
+    private static TriangleMesh quadMesh(int quads) {
+        float[] positions = new float[Math.multiplyExact(quads, 12)];
+        int[] indices = new int[Math.multiplyExact(quads, 6)];
+        for (int quad = 0; quad < quads; quad++) {
+            int vertex = quad * 4;
+            positions[vertex * 3] = quad;
+            positions[(vertex + 1) * 3] = quad + 1;
+            positions[(vertex + 2) * 3] = quad + 1;
+            positions[(vertex + 2) * 3 + 1] = 1;
+            positions[(vertex + 3) * 3] = quad;
+            positions[(vertex + 3) * 3 + 1] = 1;
+            int index = quad * 6;
+            indices[index] = vertex;
+            indices[index + 1] = vertex + 1;
+            indices[index + 2] = vertex + 2;
+            indices[index + 3] = vertex + 2;
+            indices[index + 4] = vertex + 3;
+            indices[index + 5] = vertex;
+        }
+        return new TriangleMesh(positions, indices, new float[0], new int[0], new int[0], new int[0],
+                true, true);
+    }
+
     private static TriangleMesh triangle(float x) {
         return new TriangleMesh(new float[]{x, 0, 0, x + 1, 0, 0, x, 1, 0}, new int[]{0, 1, 2}, true);
     }
